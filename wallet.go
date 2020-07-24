@@ -34,10 +34,8 @@ type wallet struct {
 	id              uuid.UUID
 	name            string
 	version         uint
-	mutex           *sync.RWMutex
 	endpoints       []*Endpoint
 	credentials     credentials.TransportCredentials
-	conns           map[string]*sync.Pool
 	connsMutex      sync.Mutex
 	timeout         time.Duration
 	connectionPools map[string]*puddle.Pool
@@ -47,8 +45,6 @@ type wallet struct {
 func newWallet() *wallet {
 	return &wallet{
 		id:              uuid.MustParse("00000000-0000-0000-0000-000000000000"),
-		mutex:           new(sync.RWMutex),
-		conns:           make(map[string]*sync.Pool),
 		connectionPools: make(map[string]*puddle.Pool),
 		timeout:         30 * time.Second,
 		version:         1,
