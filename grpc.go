@@ -722,9 +722,23 @@ func blsID(id uint64) *bls.ID {
 }
 
 // ObtainConnection obtains a connection to the required endpoint via GRPC.
+// It is possible that all connections are in use, so the context passed to this call should
+// have a timeout.
 func (w *wallet) ObtainConnection(ctx context.Context, endpoint *Endpoint) (*puddle.Resource, error) {
-	address := fmt.Sprintf("%s:%d", endpoint.host, endpoint.port)
 	w.connsMutex.Lock()
+	pool := w.obtainOrCreatePool(fmt.Sprintf("%s:%d", endpoint.host, endpoint.port))
+	w.connsMutex.Unlock()
+
+	res, err := pool.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
+// obtainOrCreatePool obtains or creates a puddle pool to connect to a remote GRPC service.
+// Assumes that connsMutex is already held.
+func (w *wallet) obtainOrCreatePool(address string) *puddle.Pool {
 	pool, exists := w.connectionPools[address]
 	if !exists {
 		constructor := func(ctx context.Context) (interface{}, error) {
@@ -735,13 +749,8 @@ func (w *wallet) ObtainConnection(ctx context.Context, endpoint *Endpoint) (*pud
 		destructor := func(val interface{}) {
 			val.(*grpc.ClientConn).Close()
 		}
-		pool = puddle.NewPool(constructor, destructor, 32)
+		pool = puddle.NewPool(constructor, destructor, 128)
 		w.connectionPools[address] = pool
 	}
-	w.connsMutex.Unlock()
-	res, err := pool.Acquire(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
+	return pool
 }
