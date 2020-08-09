@@ -474,11 +474,11 @@ func (w *wallet) GenerateDistributedAccount(ctx context.Context,
 	if resp.State != pb.ResponseState_SUCCEEDED {
 		switch resp.State {
 		case pb.ResponseState_DENIED:
-			return nil, fmt.Errorf("Generate request denied: %s", resp.Message)
+			return nil, fmt.Errorf("generate request denied: %s", resp.Message)
 		case pb.ResponseState_FAILED:
-			return nil, fmt.Errorf("Generate request failed: %s", resp.Message)
+			return nil, fmt.Errorf("generate request failed: %s", resp.Message)
 		default:
-			return nil, fmt.Errorf("Generate request failed: %s", resp.Message)
+			return nil, fmt.Errorf("generate request failed: %s", resp.Message)
 		}
 	}
 
@@ -555,7 +555,7 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		}
 	}
 	if signed != int(a.signingThreshold) {
-		return nil, fmt.Errorf("Not enough signatures: %d signed, %d denied, %d failed", signed, denied, failed)
+		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed", signed, denied, failed)
 	}
 
 	var signature bls.Sign
@@ -627,7 +627,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 		}
 	}
 	if signed != int(a.signingThreshold) {
-		return nil, fmt.Errorf("Not enough signatures: %d signed, %d denied, %d failed", signed, denied, failed)
+		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed", signed, denied, failed)
 	}
 
 	var signature bls.Sign
@@ -699,7 +699,7 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		}
 	}
 	if signed != int(a.signingThreshold) {
-		return nil, fmt.Errorf("Not enough signatures: %d signed, %d denied, %d failed", signed, denied, failed)
+		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed", signed, denied, failed)
 	}
 
 	var signature bls.Sign
