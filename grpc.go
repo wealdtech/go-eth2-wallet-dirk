@@ -67,6 +67,10 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 		path = fmt.Sprintf("%s/%s", w.Name(), accountPath)
 	}
 
+	if len(w.endpoints) == 0 {
+		return nil, errors.New("wallet has no endpoints")
+	}
+
 	connResource, err := w.ObtainConnection(ctx, w.endpoints[0])
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to endpoint")

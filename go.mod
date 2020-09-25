@@ -13,11 +13,11 @@ require (
 	github.com/wealdtech/eth2-signer-api v1.5.2
 	github.com/wealdtech/go-ecodec v1.1.0
 	github.com/wealdtech/go-eth2-types/v2 v2.5.0
-	github.com/wealdtech/go-eth2-wallet v1.12.0
+	github.com/wealdtech/go-eth2-wallet v1.14.0
 	github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4 v1.1.0
 	github.com/wealdtech/go-eth2-wallet-nd/v2 v2.3.0
 	github.com/wealdtech/go-eth2-wallet-store-scratch v1.6.0
-	github.com/wealdtech/go-eth2-wallet-types/v2 v2.6.0
+	github.com/wealdtech/go-eth2-wallet-types/v2 v2.7.0
 	github.com/wealdtech/go-indexer v1.0.0
 	golang.org/x/net v0.0.0-20200707034311-ab3426394381 // indirect
 	golang.org/x/sys v0.0.0-20200722175500-76b94024e4b6 // indirect
