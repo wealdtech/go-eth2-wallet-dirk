@@ -16,7 +16,7 @@ require (
 	github.com/wealdtech/eth2-signer-api v1.6.0
 	github.com/wealdtech/go-ecodec v1.1.0
 	github.com/wealdtech/go-eth2-types/v2 v2.5.0
-	github.com/wealdtech/go-eth2-wallet v1.14.0
+	github.com/wealdtech/go-eth2-wallet v1.14.1
 	github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4 v1.1.1
 	github.com/wealdtech/go-eth2-wallet-nd/v2 v2.3.1
 	github.com/wealdtech/go-eth2-wallet-store-scratch v1.6.0
