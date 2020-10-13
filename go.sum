@@ -120,6 +120,7 @@ github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4 v1.1.1/go.mod h1:JelKMM
 github.com/wealdtech/go-eth2-wallet-hd/v2 v2.3.0/go.mod h1:Kc/8WcqMTczfH2xy5mDfCRd0NI/ca/j2jXmqJ7gz8yk=
 github.com/wealdtech/go-eth2-wallet-hd/v2 v2.5.0/go.mod h1:LfgcOnQeBcqBEoHd4VNqwZhwqzz0Xh1DqnDmjHWONGs=
 github.com/wealdtech/go-eth2-wallet-nd/v2 v2.3.0/go.mod h1:e2q2uuEdq5+B3GE7jk+Mi9oz9V5nPPKXcXRg1XYavsU=
+github.com/wealdtech/go-eth2-wallet-nd/v2 v2.3.1/go.mod h1:72HjvN+bANNgv/YCZ4Rjwgn6wesg24aHSQlHzrbPFWo=
 github.com/wealdtech/go-eth2-wallet-store-filesystem v1.16.1/go.mod h1:Zxhj/4i8nRpk4LTTqFKbfI2KyvO3uqLMerNXqKZKDK0=
 github.com/wealdtech/go-eth2-wallet-store-s3 v1.8.0/go.mod h1:OxYD+d79StAOHigNaI5bWuvjhanEyrD4MqTj8hIvt2Y=
 github.com/wealdtech/go-eth2-wallet-store-s3 v1.9.0/go.mod h1:dcQPLsRRYDiMV0DFYzTX6HRpP9WP+gWreAX5SLBOJ0I=
