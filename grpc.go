@@ -33,6 +33,8 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+// ComposeCredentials composes a set of transport credentials given individual certificate and key paths.
+// The CA certificate path can be empty.
 func ComposeCredentials(ctx context.Context, certPath string, keyPath string, caCertPath string) (credentials.TransportCredentials, error) {
 	// Load the client certificate.
 	clientPair, err := tls.LoadX509KeyPair(certPath, keyPath)
@@ -42,6 +44,7 @@ func ComposeCredentials(ctx context.Context, certPath string, keyPath string, ca
 
 	tlsCfg := &tls.Config{
 		Certificates: []tls.Certificate{clientPair},
+		MinVersion:   tls.VersionTLS13,
 	}
 	if caCertPath != "" {
 		// Load the CA for the server certificate.

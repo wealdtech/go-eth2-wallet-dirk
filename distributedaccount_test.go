@@ -60,6 +60,7 @@ func TestCreateDistributedAccount(t *testing.T) {
 	require.True(t, isAccountCreator)
 
 	rand.Seed(time.Now().UnixNano())
+	// #nosec G404
 	accountName := fmt.Sprintf("Test account %d", rand.Uint32())
 	_, err = accountCreator.CreateDistributedAccount(context.Background(), accountName, 3, 2, []byte("secret"))
 	require.NoError(t, err)
