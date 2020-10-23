@@ -169,3 +169,21 @@ func (a *distributedAccount) SignBeaconAttestation(ctx context.Context,
 	}
 	return sig, nil
 }
+
+// SignBeaconAttestations signs multiple beacon attestations with protection.
+func (a *distributedAccount) SignBeaconAttestations(ctx context.Context,
+	slot uint64,
+	accounts []e2wtypes.Account,
+	committeeIndices []uint64,
+	blockRoot []byte,
+	sourceEpoch uint64,
+	sourceRoot []byte,
+	targetEpoch uint64,
+	targetRoot []byte,
+	domain []byte) ([]e2types.Signature, error) {
+	sigs, err := a.SignBeaconAttestationsGRPC(ctx, slot, accounts, committeeIndices, blockRoot, sourceEpoch, sourceRoot, targetEpoch, targetRoot, domain)
+	if err != nil {
+		return nil, err
+	}
+	return sigs, nil
+}

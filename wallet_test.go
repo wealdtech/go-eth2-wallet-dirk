@@ -15,14 +15,17 @@ package dirk_test
 
 import (
 	"context"
+	"fmt"
 	"io/ioutil"
-	"net"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/attestantio/dirk/testing/daemon"
+	"github.com/attestantio/dirk/testing/resources"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,28 +56,28 @@ func TestComposeCredentials(t *testing.T) {
 			clientPath: "",
 			keyPath:    filepath.Join(tmpDir, "client-test01.key"),
 			caPath:     filepath.Join(tmpDir, "ca.crt"),
-			err:        `failed to access client certificate/key: open : no such file or directory`,
+			err:        `failed to obtain client certificate: open : no such file or directory`,
 		},
 		{
 			name:       "ClientPathBad",
 			clientPath: "bad",
 			keyPath:    filepath.Join(tmpDir, "client-test01.key"),
 			caPath:     filepath.Join(tmpDir, "ca.crt"),
-			err:        `failed to access client certificate/key: open bad: no such file or directory`,
+			err:        `failed to obtain client certificate: open bad: no such file or directory`,
 		},
 		{
 			name:       "KeyPathEmpty",
 			clientPath: filepath.Join(tmpDir, "client-test01.crt"),
 			keyPath:    "",
 			caPath:     filepath.Join(tmpDir, "ca.crt"),
-			err:        `failed to access client certificate/key: open : no such file or directory`,
+			err:        `failed to obtain client key: open : no such file or directory`,
 		},
 		{
 			name:       "KeyPathBad",
 			clientPath: filepath.Join(tmpDir, "client-test01.crt"),
 			keyPath:    "bad",
 			caPath:     filepath.Join(tmpDir, "ca.crt"),
-			err:        `failed to access client certificate/key: open bad: no such file or directory`,
+			err:        `failed to obtain client key: open bad: no such file or directory`,
 		},
 		{
 			name:       "CAPathEmpty",
@@ -88,7 +91,7 @@ func TestComposeCredentials(t *testing.T) {
 			clientPath: filepath.Join(tmpDir, "client-test01.crt"),
 			keyPath:    filepath.Join(tmpDir, "client-test01.key"),
 			caPath:     "bad",
-			err:        `failed to access CA certificate: open bad: no such file or directory`,
+			err:        `failed to obtain CA certificate: open bad: no such file or directory`,
 		},
 		{
 			name:       "Good",
@@ -115,65 +118,75 @@ func TestAccounts(t *testing.T) {
 	err := e2types.InitBLS()
 	require.NoError(t, err)
 
-	tmpDir, err := ioutil.TempDir(os.TempDir(), "TestAccounts")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-	require.NoError(t, SetupCerts(tmpDir))
-	ctx := context.Background()
-	credentials, err := dirk.ComposeCredentials(ctx,
-		filepath.Join(tmpDir, "client-test01.crt"),
-		filepath.Join(tmpDir, "client-test01.key"),
-		filepath.Join(tmpDir, "ca.crt"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rand.Seed(time.Now().UnixNano())
+	// #nosec G404
+	port := uint32(12000 + rand.Intn(4000))
+	_, path, err := daemon.New(ctx, "", 1, port,
+		map[uint64]string{
+			1: fmt.Sprintf("signer-test01:%d", port),
+		})
+	defer os.RemoveAll(path)
 	require.NoError(t, err)
 
 	endpoints := []*dirk.Endpoint{
-		dirk.NewEndpoint("signer-test01", 8881),
-		dirk.NewEndpoint("signer-test02", 8882),
-		dirk.NewEndpoint("signer-test03", 8883),
+		dirk.NewEndpoint("signer-test01", port),
 	}
-	wallet, err := dirk.OpenWallet(ctx, "ND wallet", credentials, endpoints)
+
+	credentials, err := dirk.Credentials(ctx,
+		resources.ClientTest01Crt,
+		resources.ClientTest01Key,
+		resources.CACrt,
+	)
 	require.NoError(t, err)
-	if !pingEndpoint(endpoints[0]) {
-		t.Skip()
-	}
 
-	foundAccounts := false
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	accountsCh := wallet.Accounts(ctx)
-	for range accountsCh {
-		foundAccounts = true
-	}
-	assert.True(t, foundAccounts)
+	wallet, err := dirk.OpenWallet(ctx, "Wallet 1", credentials, endpoints)
+	require.NoError(t, err)
 
+	accounts := 0
+	for range wallet.Accounts(ctx) {
+		accounts++
+	}
+	require.Equal(t, len(daemon.Wallet1Keys), accounts)
 }
 
 func TestAccountByName(t *testing.T) {
 	err := e2types.InitBLS()
 	require.NoError(t, err)
 
-	tmpDir, err := ioutil.TempDir(os.TempDir(), "TestAccountByName")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-	require.NoError(t, SetupCerts(tmpDir))
-	ctx := context.Background()
-	credentials, err := dirk.ComposeCredentials(ctx,
-		filepath.Join(tmpDir, "client-test01.crt"),
-		filepath.Join(tmpDir, "client-test01.key"),
-		filepath.Join(tmpDir, "ca.crt"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rand.Seed(time.Now().UnixNano())
+	// #nosec G404
+	port := uint32(12000 + rand.Intn(4000))
+	_, path, err := daemon.New(ctx, "", 1, port,
+		map[uint64]string{
+			1: fmt.Sprintf("signer-test01:%d", port),
+		})
+	defer os.RemoveAll(path)
 	require.NoError(t, err)
 
 	endpoints := []*dirk.Endpoint{
-		dirk.NewEndpoint("signer-test01", 8881),
-		dirk.NewEndpoint("signer-test02", 8882),
-		dirk.NewEndpoint("signer-test03", 8883),
+		dirk.NewEndpoint("signer-test01", port),
 	}
-	wallet, err := dirk.OpenWallet(ctx, "ND wallet", credentials, endpoints)
+
+	credentials, err := dirk.Credentials(ctx,
+		resources.ClientTest01Crt,
+		resources.ClientTest01Key,
+		resources.CACrt,
+	)
 	require.NoError(t, err)
 
-	if !pingEndpoint(endpoints[0]) {
-		t.Skip()
+	wallet, err := dirk.OpenWallet(ctx, "Wallet 1", credentials, endpoints)
+	require.NoError(t, err)
+
+	accounts := 0
+	for range wallet.Accounts(ctx) {
+		accounts++
 	}
+	require.Equal(t, len(daemon.Wallet1Keys), accounts)
+
 	tests := []struct {
 		name        string
 		accountName string
@@ -186,7 +199,7 @@ func TestAccountByName(t *testing.T) {
 		},
 		{
 			name:        "Good",
-			accountName: "Test account",
+			accountName: "Account 1",
 		},
 	}
 
@@ -213,35 +226,39 @@ func TestWalletInfo(t *testing.T) {
 	err := e2types.InitBLS()
 	require.NoError(t, err)
 
-	tmpDir, err := ioutil.TempDir(os.TempDir(), "TestWalletInfo")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-	require.NoError(t, SetupCerts(tmpDir))
-	ctx := context.Background()
-	credentials, err := dirk.ComposeCredentials(ctx,
-		filepath.Join(tmpDir, "client-test01.crt"),
-		filepath.Join(tmpDir, "client-test01.key"),
-		filepath.Join(tmpDir, "ca.crt"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	rand.Seed(time.Now().UnixNano())
+	// #nosec G404
+	port := uint32(12000 + rand.Intn(4000))
+	_, path, err := daemon.New(ctx, "", 1, port,
+		map[uint64]string{
+			1: fmt.Sprintf("signer-test01:%d", port),
+		})
+	defer os.RemoveAll(path)
 	require.NoError(t, err)
 
 	endpoints := []*dirk.Endpoint{
-		dirk.NewEndpoint("signer-test01", 8881),
-		dirk.NewEndpoint("signer-test02", 8882),
-		dirk.NewEndpoint("signer-test03", 8883),
+		dirk.NewEndpoint("signer-test01", port),
 	}
-	wallet, err := dirk.OpenWallet(ctx, "ND wallet", credentials, endpoints)
+
+	credentials, err := dirk.Credentials(ctx,
+		resources.ClientTest01Crt,
+		resources.ClientTest01Key,
+		resources.CACrt,
+	)
 	require.NoError(t, err)
-	if !pingEndpoint(endpoints[0]) {
-		t.Skip()
-	}
+
+	wallet, err := dirk.OpenWallet(ctx, "Wallet 1", credentials, endpoints)
+	require.NoError(t, err)
 
 	assert.Equal(t, uuid.MustParse("00000000-0000-0000-0000-000000000000"), wallet.ID())
 	assert.Equal(t, "dirk", wallet.(e2wtypes.WalletTypeProvider).Type())
-	assert.Equal(t, "ND wallet", wallet.Name())
+	assert.Equal(t, "Wallet 1", wallet.Name())
 	assert.Equal(t, uint(1), wallet.Version())
 
 	// Unlocking is handled implicitly by dirk so we return no error.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	err = wallet.(e2wtypes.WalletLocker).Unlock(ctx, nil)
 	assert.NoError(t, err)
@@ -256,14 +273,4 @@ func TestWalletInfo(t *testing.T) {
 	defer cancel()
 	_, err = wallet.(e2wtypes.WalletAccountByIDProvider).AccountByID(ctx, uuid.MustParse("00000000-0000-0000-0000-000000000000"))
 	assert.EqualError(t, err, "not supported")
-}
-
-// pingEndpoint pings the given endpoint to see if it exists.
-func pingEndpoint(endpoint *dirk.Endpoint) bool {
-	conn, err := net.DialTimeout("tcp", endpoint.String(), time.Second)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
 }

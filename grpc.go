@@ -24,36 +24,50 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/herumi/bls-eth-go-binary/bls"
-	"github.com/jackc/puddle"
 	"github.com/pkg/errors"
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 	e2types "github.com/wealdtech/go-eth2-types/v2"
 	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
 // ComposeCredentials composes a set of transport credentials given individual certificate and key paths.
 // The CA certificate path can be empty.
 func ComposeCredentials(ctx context.Context, certPath string, keyPath string, caCertPath string) (credentials.TransportCredentials, error) {
-	// Load the client certificate.
-	clientPair, err := tls.LoadX509KeyPair(certPath, keyPath)
+	clientCert, err := ioutil.ReadFile(certPath)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to access client certificate/key")
+		return nil, errors.Wrap(err, "failed to obtain client certificate")
+	}
+	clientKey, err := ioutil.ReadFile(keyPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to obtain client key")
+	}
+	var caCert []byte
+	if caCertPath != "" {
+		caCert, err = ioutil.ReadFile(caCertPath)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to obtain CA certificate")
+		}
+	}
+
+	return Credentials(ctx, clientCert, clientKey, caCert)
+}
+
+// Credentials composes a set of transport credentials given a client certificate and an optional CA certificate.
+func Credentials(ctx context.Context, clientCert []byte, clientKey []byte, caCert []byte) (credentials.TransportCredentials, error) {
+	clientPair, err := tls.X509KeyPair(clientCert, clientKey)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to load client keypair")
 	}
 
 	tlsCfg := &tls.Config{
 		Certificates: []tls.Certificate{clientPair},
 		MinVersion:   tls.VersionTLS13,
 	}
-	if caCertPath != "" {
-		// Load the CA for the server certificate.
-		serverCA, err := ioutil.ReadFile(caCertPath)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to access CA certificate")
-		}
+
+	if caCert != nil {
 		cp := x509.NewCertPool()
-		if !cp.AppendCertsFromPEM(serverCA) {
+		if !cp.AppendCertsFromPEM(caCert) {
 			return nil, errors.New("failed to add CA certificate")
 		}
 		tlsCfg.RootCAs = cp
@@ -74,13 +88,13 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 		return nil, errors.New("wallet has no endpoints")
 	}
 
-	connResource, err := w.ObtainConnection(ctx, w.endpoints[0])
+	conn, release, err := w.connectionProvider.Connection(ctx, w.endpoints[0])
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to endpoint")
 	}
-	defer connResource.Release()
+	defer release()
 
-	listerClient := pb.NewListerClient(connResource.Value().(*grpc.ClientConn))
+	listerClient := pb.NewListerClient(conn)
 	req := &pb.ListAccountsRequest{
 		Paths: []string{
 			path,
@@ -91,7 +105,7 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 		return nil, errors.Wrap(err, "failed to access dirk")
 	}
 	if resp.State != pb.ResponseState_SUCCEEDED {
-		return nil, errors.New("request to list wallet accounts failed")
+		return nil, fmt.Errorf("request to list wallet accounts returned state %v", resp.State)
 	}
 
 	walletPrefixLen := len(w.Name()) + 1
@@ -159,13 +173,13 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 
 // Unlock unlocks an account.
 func (w *wallet) UnlockAccount(ctx context.Context, accountName string, passphrase []byte) (bool, error) {
-	connResource, err := w.ObtainConnection(ctx, w.endpoints[0])
+	conn, release, err := w.connectionProvider.Connection(ctx, w.endpoints[0])
 	if err != nil {
 		return false, errors.Wrap(err, "failed to connect to endpoint")
 	}
-	defer connResource.Release()
+	defer release()
 
-	accountManagerClient := pb.NewAccountManagerClient(connResource.Value().(*grpc.ClientConn))
+	accountManagerClient := pb.NewAccountManagerClient(conn)
 	req := &pb.UnlockAccountRequest{
 		Account:    fmt.Sprintf("%s/%s", w.Name(), accountName),
 		Passphrase: passphrase,
@@ -182,13 +196,13 @@ func (w *wallet) UnlockAccount(ctx context.Context, accountName string, passphra
 
 // Lock locks an account.
 func (w *wallet) LockAccount(ctx context.Context, accountName string) error {
-	connResource, err := w.ObtainConnection(ctx, w.endpoints[0])
+	conn, release, err := w.connectionProvider.Connection(ctx, w.endpoints[0])
 	if err != nil {
 		return errors.Wrap(err, "failed to connect to endpoint")
 	}
-	defer connResource.Release()
+	defer release()
 
-	accountManagerClient := pb.NewAccountManagerClient(connResource.Value().(*grpc.ClientConn))
+	accountManagerClient := pb.NewAccountManagerClient(conn)
 	req := &pb.LockAccountRequest{
 		Account: fmt.Sprintf("%s/%s", w.Name(), accountName),
 	}
@@ -217,13 +231,13 @@ func (a *account) SignGRPC(ctx context.Context,
 		Domain: domain,
 	}
 
-	connResource, err := a.wallet.ObtainConnection(ctx, a.wallet.endpoints[0])
+	conn, release, err := a.wallet.connectionProvider.Connection(ctx, a.wallet.endpoints[0])
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to endpoint")
 	}
-	defer connResource.Release()
+	defer release()
 
-	client := pb.NewSignerClient(connResource.Value().(*grpc.ClientConn))
+	client := pb.NewSignerClient(conn)
 	if client == nil {
 		return nil, errors.New("failed to set up signing client")
 	}
@@ -294,13 +308,13 @@ func (a *account) SignBeaconProposalGRPC(ctx context.Context,
 	}
 
 	endpoint := a.wallet.endpoints[0]
-	connResource, err := a.wallet.ObtainConnection(ctx, endpoint)
+	conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to endpoint")
 	}
-	defer connResource.Release()
+	defer release()
 
-	client := pb.NewSignerClient(connResource.Value().(*grpc.ClientConn))
+	client := pb.NewSignerClient(conn)
 	if client == nil {
 		return nil, errors.New("failed to set up signing client")
 	}
@@ -385,13 +399,13 @@ func (a *account) SignBeaconAttestationGRPC(ctx context.Context,
 	}
 
 	endpoint := a.wallet.endpoints[0]
-	connResource, err := a.wallet.ObtainConnection(ctx, endpoint)
+	conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to endpoint")
 	}
-	defer connResource.Release()
+	defer release()
 
-	client := pb.NewSignerClient(connResource.Value().(*grpc.ClientConn))
+	client := pb.NewSignerClient(conn)
 	if client == nil {
 		return nil, errors.New("failed to set up signing client")
 	}
@@ -454,19 +468,132 @@ func (a *distributedAccount) SignBeaconAttestationGRPC(ctx context.Context,
 	return sig, nil
 }
 
+// SignBeaconAttestationsGRPC signs multiple beacon chain attestations over GRPC.
+func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
+	slot uint64,
+	accounts []e2wtypes.Account,
+	committeeIndices []uint64,
+	blockRoot []byte,
+	sourceEpoch uint64,
+	sourceRoot []byte,
+	targetEpoch uint64,
+	targetRoot []byte,
+	domain []byte) ([]e2types.Signature, error) {
+
+	req := &pb.SignBeaconAttestationsRequest{
+		Requests: make([]*pb.SignBeaconAttestationRequest, len(accounts)),
+	}
+	for i := range accounts {
+		req.Requests[i] = &pb.SignBeaconAttestationRequest{
+			Id: &pb.SignBeaconAttestationRequest_Account{Account: fmt.Sprintf("%s/%s", accounts[i].(*account).wallet.Name(), accounts[i].Name())},
+			Data: &pb.AttestationData{
+				Slot:            slot,
+				CommitteeIndex:  committeeIndices[i],
+				BeaconBlockRoot: blockRoot,
+				Source: &pb.Checkpoint{
+					Epoch: sourceEpoch,
+					Root:  sourceRoot,
+				},
+				Target: &pb.Checkpoint{
+					Epoch: targetEpoch,
+					Root:  targetRoot,
+				},
+			},
+			Domain: domain,
+		}
+	}
+
+	endpoint := a.wallet.endpoints[0]
+	conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to connect to endpoint")
+	}
+	defer release()
+
+	client := pb.NewSignerClient(conn)
+	if client == nil {
+		return nil, errors.New("failed to set up signing client")
+	}
+	resp, err := client.SignBeaconAttestations(ctx, req)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to obtain signatures")
+	}
+
+	sigs := make([]e2types.Signature, len(accounts))
+	for i := range resp.Responses {
+		if resp.Responses[i].State == pb.ResponseState_FAILED {
+			return nil, errors.New("request to obtain signatures failed")
+		}
+		if resp.Responses[i].State == pb.ResponseState_DENIED {
+			return nil, errors.New("request to obtain signatures denied")
+		}
+		sigs[i], err = e2types.BLSSignatureFromBytes(resp.Responses[i].Signature)
+		if err != nil {
+			return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %v", endpoint))
+		}
+	}
+
+	return sigs, nil
+}
+
+// SignBeaconAttestationsGRPC signs multiple beacon chain attestations over GRPC.
+func (a *distributedAccount) SignBeaconAttestationsGRPC(ctx context.Context,
+	slot uint64,
+	accounts []e2wtypes.Account,
+	committeeIndices []uint64,
+	blockRoot []byte,
+	sourceEpoch uint64,
+	sourceRoot []byte,
+	targetEpoch uint64,
+	targetRoot []byte,
+	domain []byte) ([]e2types.Signature, error) {
+
+	thresholds := make([]uint32, len(accounts))
+	req := &pb.SignBeaconAttestationsRequest{
+		Requests: make([]*pb.SignBeaconAttestationRequest, len(accounts)),
+	}
+	for i := range accounts {
+		thresholds[i] = accounts[i].(*distributedAccount).signingThreshold
+		req.Requests[i] = &pb.SignBeaconAttestationRequest{
+			Id: &pb.SignBeaconAttestationRequest_Account{Account: fmt.Sprintf("%s/%s", accounts[i].(*distributedAccount).wallet.Name(), accounts[i].Name())},
+			Data: &pb.AttestationData{
+				Slot:            slot,
+				CommitteeIndex:  committeeIndices[i],
+				BeaconBlockRoot: blockRoot,
+				Source: &pb.Checkpoint{
+					Epoch: sourceEpoch,
+					Root:  sourceRoot,
+				},
+				Target: &pb.Checkpoint{
+					Epoch: targetEpoch,
+					Root:  targetRoot,
+				},
+			},
+			Domain: domain,
+		}
+	}
+
+	sigs, err := a.thresholdSignBeaconAttestations(ctx, req, thresholds)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to obtain signatures")
+	}
+
+	return sigs, nil
+}
+
 // GenerateDistributedAccount generates a distributed account.
 func (w *wallet) GenerateDistributedAccount(ctx context.Context,
 	accountName string,
 	participants uint32,
 	signingThreshold uint32,
 	passphrase []byte) (e2wtypes.Account, error) {
-	connResource, err := w.ObtainConnection(ctx, w.endpoints[0])
+	conn, release, err := w.connectionProvider.Connection(ctx, w.endpoints[0])
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to endpoint")
 	}
-	defer connResource.Release()
+	defer release()
 
-	accountClient := pb.NewAccountManagerClient(connResource.Value().(*grpc.ClientConn))
+	accountClient := pb.NewAccountManagerClient(conn)
 	req := &pb.GenerateRequest{
 		Account:          fmt.Sprintf("%s/%s", w.Name(), accountName),
 		Participants:     participants,
@@ -506,13 +633,13 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
 
 	for id, endpoint := range a.participants {
-		connResource, err := a.wallet.ObtainConnection(ctx, endpoint)
+		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
 		if err != nil {
 			return nil, errors.Wrap(err, fmt.Sprintf("failed to connect to endpoint %v", endpoint))
 		}
-		defer connResource.Release()
+		defer release()
 
-		clients[id] = pb.NewSignerClient(connResource.Value().(*grpc.ClientConn))
+		clients[id] = pb.NewSignerClient(conn)
 		if clients[id] == nil {
 			return nil, errors.New(fmt.Sprintf("failed to set up signing client for %v", endpoint))
 		}
@@ -578,29 +705,32 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
 
 	for id, endpoint := range a.participants {
-		connResource, err := a.wallet.ObtainConnection(ctx, endpoint)
+		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
 		if err != nil {
 			return nil, errors.Wrap(err, fmt.Sprintf("failed to connect to endpoint %v", endpoint))
 		}
-		defer connResource.Release()
+		defer release()
 
-		clients[id] = pb.NewSignerClient(connResource.Value().(*grpc.ClientConn))
+		clients[id] = pb.NewSignerClient(conn)
 		if clients[id] == nil {
 			return nil, errors.New(fmt.Sprintf("failed to set up signing client for %v", endpoint))
 		}
 	}
 
-	type multiSignResponse struct {
+	type thresholdSignResponse struct {
 		id   uint64
 		resp *pb.SignResponse
 	}
-	respChannel := make(chan *multiSignResponse, len(clients))
+	respChannel := make(chan *thresholdSignResponse, len(clients))
+	errChannel := make(chan error, len(clients))
 
 	for id, client := range clients {
 		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconAttestationRequest) {
 			resp, err := client.SignBeaconAttestation(ctx, req)
-			if err == nil {
-				respChannel <- &multiSignResponse{
+			if err != nil {
+				errChannel <- err
+			} else {
+				respChannel <- &thresholdSignResponse{
 					id:   id,
 					resp: resp,
 				}
@@ -608,16 +738,19 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 		}(client, id, req)
 	}
 
-	// Wait for enough responses (or timeout)
+	// Wait for enough responses (or context done).
 	signed := 0
 	denied := 0
 	failed := 0
+	errored := 0
 	ids := make([]bls.ID, a.signingThreshold)
 	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed != int(a.signingThreshold) && signed+denied+failed != len(clients) {
+	for signed != int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
+		case <-errChannel:
+			errored++
 		case resp := <-respChannel:
 			switch resp.resp.State {
 			case pb.ResponseState_DENIED:
@@ -634,7 +767,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 		}
 	}
 	if signed != int(a.signingThreshold) {
-		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed", signed, denied, failed)
+		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
 
 	var signature bls.Sign
@@ -645,18 +778,127 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 	return e2types.BLSSignatureFromSig(signature)
 }
 
+// thresholdSignBeaconAttestations handles signing, with a threshold of responses.
+func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context, req *pb.SignBeaconAttestationsRequest, thresholds []uint32) ([]e2types.Signature, error) {
+	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
+
+	for id, endpoint := range a.participants {
+		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
+		if err != nil {
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to connect to endpoint %v", endpoint))
+		}
+		defer release()
+
+		clients[id] = pb.NewSignerClient(conn)
+		if clients[id] == nil {
+			return nil, errors.New(fmt.Sprintf("failed to set up signing client for %v", endpoint))
+		}
+	}
+
+	type thresholdSignResponse struct {
+		id   uint64
+		resp *pb.MultisignResponse
+	}
+	respChannel := make(chan *thresholdSignResponse, len(clients))
+	errChannel := make(chan error, len(clients))
+
+	for id, client := range clients {
+		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconAttestationsRequest) {
+			resp, err := client.SignBeaconAttestations(ctx, req)
+			if err != nil {
+				errChannel <- err
+			} else {
+				respChannel <- &thresholdSignResponse{
+					id:   id,
+					resp: resp,
+				}
+			}
+		}(client, id, req)
+	}
+
+	// Wait for enough responses (or context done).
+	responses := 0
+	denied := make([]int, len(thresholds))
+	failed := make([]int, len(thresholds))
+	ids := make([][]bls.ID, len(thresholds))
+	signatures := make([][]bls.Sign, len(thresholds))
+	for i := range ids {
+		ids[i] = make([]bls.ID, 0, len(clients))
+		signatures[i] = make([]bls.Sign, 0, len(clients))
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, errors.New("context done")
+		case <-errChannel:
+			responses++
+			// log.Warn().Err(err).Msg("Received error from client")
+		case resp := <-respChannel:
+			responses++
+			for i := range resp.resp.Responses {
+				switch resp.resp.Responses[i].State {
+				case pb.ResponseState_DENIED:
+					denied[i]++
+				case pb.ResponseState_FAILED:
+					failed[i]++
+				case pb.ResponseState_SUCCEEDED:
+					ids[i] = append(ids[i], *blsID(resp.id))
+					var sig bls.Sign
+					if err := sig.Deserialize(resp.resp.Responses[i].Signature); err != nil {
+						return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %d", resp.id))
+					}
+					signatures[i] = append(signatures[i], sig)
+				}
+			}
+		}
+
+		// See if we have enough successful reponses for all requests.
+		if responses == len(clients) {
+			// We have all the responses; done by definition.
+			break
+		}
+
+		// We could be done early if we have enough signatures.
+		done := true
+		for i := range ids {
+			if len(ids[i]) != int(thresholds[i]) {
+				done = false
+				break
+			}
+		}
+		if done {
+			break
+		}
+	}
+
+	res := make([]e2types.Signature, len(thresholds))
+	var err error
+	for i := range ids {
+		var signature bls.Sign
+		if err := signature.Recover(signatures[i][0:a.signingThreshold], ids[i][0:a.signingThreshold]); err != nil {
+			return nil, errors.Wrap(err, "failed to recover composite signature")
+		}
+		res[i], err = e2types.BLSSignatureFromSig(signature)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to instantiate signature")
+		}
+	}
+
+	return res, nil
+}
+
 // thresholdSignBeaconProposal handles signing, with a threshold of responses.
 func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, req *pb.SignBeaconProposalRequest) (e2types.Signature, error) {
 	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
 
 	for id, endpoint := range a.participants {
-		connResource, err := a.wallet.ObtainConnection(ctx, endpoint)
+		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
 		if err != nil {
 			return nil, errors.Wrap(err, fmt.Sprintf("failed to connect to endpoint %v", endpoint))
 		}
-		defer connResource.Release()
+		defer release()
 
-		clients[id] = pb.NewSignerClient(connResource.Value().(*grpc.ClientConn))
+		clients[id] = pb.NewSignerClient(conn)
 		if clients[id] == nil {
 			return nil, errors.New(fmt.Sprintf("failed to set up signing client for %v", endpoint))
 		}
@@ -667,11 +909,14 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		resp *pb.SignResponse
 	}
 	respChannel := make(chan *multiSignResponse, len(clients))
+	errChannel := make(chan error, len(clients))
 
 	for id, client := range clients {
 		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconProposalRequest) {
 			resp, err := client.SignBeaconProposal(ctx, req)
-			if err == nil {
+			if err != nil {
+				errChannel <- err
+			} else {
 				respChannel <- &multiSignResponse{
 					id:   id,
 					resp: resp,
@@ -680,16 +925,19 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		}(client, id, req)
 	}
 
-	// Wait for enough responses (or timeout)
+	// Wait for enough responses (or context done).
 	signed := 0
 	denied := 0
 	failed := 0
+	errored := 0
 	ids := make([]bls.ID, a.signingThreshold)
 	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed != int(a.signingThreshold) && signed+denied+failed != len(clients) {
+	for signed != int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
+		case <-errChannel:
+			errored++
 		case resp := <-respChannel:
 			switch resp.resp.State {
 			case pb.ResponseState_DENIED:
@@ -706,7 +954,7 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		}
 	}
 	if signed != int(a.signingThreshold) {
-		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed", signed, denied, failed)
+		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
 
 	var signature bls.Sign
@@ -726,38 +974,4 @@ func blsID(id uint64) *bls.ID {
 		panic(err)
 	}
 	return &res
-}
-
-// ObtainConnection obtains a connection to the required endpoint via GRPC.
-// It is possible that all connections are in use, so the context passed to this call should
-// have a timeout.
-func (w *wallet) ObtainConnection(ctx context.Context, endpoint *Endpoint) (*puddle.Resource, error) {
-	w.connsMutex.Lock()
-	pool := w.obtainOrCreatePool(fmt.Sprintf("%s:%d", endpoint.host, endpoint.port))
-	w.connsMutex.Unlock()
-
-	res, err := pool.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
-}
-
-// obtainOrCreatePool obtains or creates a puddle pool to connect to a remote GRPC service.
-// Assumes that connsMutex is already held.
-func (w *wallet) obtainOrCreatePool(address string) *puddle.Pool {
-	pool, exists := w.connectionPools[address]
-	if !exists {
-		constructor := func(ctx context.Context) (interface{}, error) {
-			return grpc.Dial(address, []grpc.DialOption{
-				grpc.WithTransportCredentials(w.credentials),
-			}...)
-		}
-		destructor := func(val interface{}) {
-			val.(*grpc.ClientConn).Close()
-		}
-		pool = puddle.NewPool(constructor, destructor, 128)
-		w.connectionPools[address] = pool
-	}
-	return pool
 }

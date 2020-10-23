@@ -15,7 +15,6 @@ package dirk
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -31,23 +30,20 @@ const (
 
 // wallet contains the details of a remote dirk wallet.
 type wallet struct {
-	id              uuid.UUID
-	name            string
-	version         uint
-	endpoints       []*Endpoint
-	credentials     credentials.TransportCredentials
-	connsMutex      sync.Mutex
-	timeout         time.Duration
-	connectionPools map[string]*puddle.Pool
+	id                 uuid.UUID
+	name               string
+	version            uint
+	endpoints          []*Endpoint
+	timeout            time.Duration
+	connectionProvider ConnectionProvider
 }
 
 // newWallet creates a new wallet
 func newWallet() *wallet {
 	return &wallet{
-		id:              uuid.MustParse("00000000-0000-0000-0000-000000000000"),
-		connectionPools: make(map[string]*puddle.Pool),
-		timeout:         30 * time.Second,
-		version:         1,
+		id:      uuid.MustParse("00000000-0000-0000-0000-000000000000"),
+		timeout: 30 * time.Second,
+		version: 1,
 	}
 }
 
@@ -55,8 +51,11 @@ func newWallet() *wallet {
 func OpenWallet(ctx context.Context, name string, credentials credentials.TransportCredentials, endpoints []*Endpoint) (e2wtypes.Wallet, error) {
 	wallet := newWallet()
 	wallet.name = name
-	wallet.credentials = credentials.Clone()
 	wallet.endpoints = make([]*Endpoint, len(endpoints))
+	wallet.connectionProvider = &PuddleConnectionProvider{
+		connectionPools: make(map[string]*puddle.Pool),
+		credentials:     credentials.Clone(),
+	}
 	for i := range endpoints {
 		wallet.endpoints[i] = &Endpoint{
 			host: endpoints[i].host,
@@ -148,4 +147,10 @@ func (w *wallet) CreateAccount(ctx context.Context, name string, passphrase []by
 // CreateDistributedAccount creates a distributed account.
 func (w *wallet) CreateDistributedAccount(ctx context.Context, name string, participants uint32, signingThreshold uint32, passphrase []byte) (e2wtypes.Account, error) {
 	return w.GenerateDistributedAccount(ctx, name, participants, signingThreshold, passphrase)
+}
+
+// SetConnectionProvider sets a connection provider for the wallet.
+// This should, in general, only be used for testing.
+func (w *wallet) SetConnectionProvider(connectionProvider ConnectionProvider) {
+	w.connectionProvider = connectionProvider
 }
