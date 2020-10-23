@@ -818,8 +818,10 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 
 	// Wait for enough responses (or context done).
 	responses := 0
+	signed := make([]int, len(thresholds))
 	denied := make([]int, len(thresholds))
 	failed := make([]int, len(thresholds))
+	errored := make([]int, len(thresholds))
 	ids := make([][]bls.ID, len(thresholds))
 	signatures := make([][]bls.Sign, len(thresholds))
 	for i := range ids {
@@ -831,8 +833,10 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		case <-ctx.Done():
 			return nil, errors.New("context done")
 		case <-errChannel:
+			for i := range errored {
+				errored[i]++
+			}
 			responses++
-			// log.Warn().Err(err).Msg("Received error from client")
 		case resp := <-respChannel:
 			responses++
 			for i := range resp.resp.Responses {
@@ -842,6 +846,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 				case pb.ResponseState_FAILED:
 					failed[i]++
 				case pb.ResponseState_SUCCEEDED:
+					signed[i]++
 					ids[i] = append(ids[i], *blsID(resp.id))
 					var sig bls.Sign
 					if err := sig.Deserialize(resp.resp.Responses[i].Signature); err != nil {
@@ -874,13 +879,20 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 	res := make([]e2types.Signature, len(thresholds))
 	var err error
 	for i := range ids {
+		if signed[i] != int(a.signingThreshold) {
+			// Not enough components to make the composite signature.
+			continue
+		}
 		var signature bls.Sign
 		if err := signature.Recover(signatures[i][0:a.signingThreshold], ids[i][0:a.signingThreshold]); err != nil {
-			return nil, errors.Wrap(err, "failed to recover composite signature")
+			// Invalid component signatures.
+			continue
 		}
 		res[i], err = e2types.BLSSignatureFromSig(signature)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to instantiate signature")
+			// Invalid composite signature.
+			res[i] = nil
+			continue
 		}
 	}
 
