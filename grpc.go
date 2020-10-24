@@ -650,11 +650,14 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		resp *pb.SignResponse
 	}
 	respChannel := make(chan *multiSignResponse, len(clients))
+	errChannel := make(chan error, len(clients))
 
 	for id, client := range clients {
 		go func(client pb.SignerClient, id uint64, req *pb.SignRequest) {
 			resp, err := client.Sign(ctx, req)
-			if err == nil {
+			if err != nil {
+				errChannel <- err
+			} else {
 				respChannel <- &multiSignResponse{
 					id:   id,
 					resp: resp,
@@ -663,16 +666,20 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		}(client, id, req)
 	}
 
+	fmt.Printf("Waiting for %d responses\n", a.signingThreshold)
 	// Wait for enough responses (or timeout)
 	signed := 0
 	denied := 0
 	failed := 0
+	errored := 0
 	ids := make([]bls.ID, a.signingThreshold)
 	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed != int(a.signingThreshold) && signed+denied+failed != len(clients) {
+	for signed != int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
+		case <-errChannel:
+			errored++
 		case resp := <-respChannel:
 			switch resp.resp.State {
 			case pb.ResponseState_DENIED:
@@ -689,7 +696,7 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		}
 	}
 	if signed != int(a.signingThreshold) {
-		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed", signed, denied, failed)
+		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
 
 	var signature bls.Sign

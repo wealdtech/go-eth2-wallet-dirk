@@ -104,9 +104,11 @@ func TestListGRPC(t *testing.T) {
 	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}})
 	w.(*wallet).SetConnectionProvider(connectionProvider)
 	require.NoError(t, err)
-	for account := range w.Accounts(ctx) {
-		fmt.Printf("Account is %v\n", account)
+	accounts := 0
+	for range w.Accounts(ctx) {
+		accounts++
 	}
+	require.Equal(t, 8, accounts)
 }
 
 func TestDistributedThresholdSign(t *testing.T) {
@@ -222,7 +224,7 @@ func TestDistributedThresholdSign(t *testing.T) {
 	cancel2()
 	time.Sleep(time.Second)
 
-	// Sign again; should error out.
+	// Sign again; should error out as we no longer have enough active daemons.
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, err = account.(e2wtypes.AccountProtectingSigner).SignGeneric(ctx,
@@ -235,5 +237,5 @@ func TestDistributedThresholdSign(t *testing.T) {
 			0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22,
 		},
 	)
-	require.EqualError(t, err, "failed to obtain signature: context done")
+	require.EqualError(t, err, "failed to obtain signature: not enough signatures: 1 signed, 0 denied, 0 failed, 2 errored")
 }
