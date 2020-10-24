@@ -18,5 +18,3 @@ require (
 	google.golang.org/genproto v0.0.0-20201013134114-7f9ee70cb474 // indirect
 	google.golang.org/grpc v1.33.0
 )
-
-replace github.com/attestantio/dirk => ../../attestantio/dirk
