@@ -666,7 +666,6 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		}(client, id, req)
 	}
 
-	fmt.Printf("Waiting for %d responses\n", a.signingThreshold)
 	// Wait for enough responses (or timeout)
 	signed := 0
 	denied := 0

@@ -55,6 +55,8 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 		constructor := func(ctx context.Context) (interface{}, error) {
 			return grpc.DialContext(ctx, address, []grpc.DialOption{
 				grpc.WithTransportCredentials(c.credentials),
+				// Maximum receive value 64 MB.
+				grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64 * 1024 * 1024)),
 			}...)
 		}
 		destructor := func(val interface{}) {
