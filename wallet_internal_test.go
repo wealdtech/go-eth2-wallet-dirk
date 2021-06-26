@@ -1,4 +1,4 @@
-// Copyright © 2020 Weald Technology Trading
+// Copyright © 2020, 2021 Weald Technology Trading
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 	e2types "github.com/wealdtech/go-eth2-types/v2"
 	mock "github.com/wealdtech/go-eth2-wallet-dirk/mock"
 	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
@@ -51,7 +52,7 @@ func TestWalletFunctions(t *testing.T) {
 func TestListNoEndpoints(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
-	connectionProvider, err := NewBufConnectionProvider(ctx, &mock.MockListerServer{})
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.MockListerServer{}})
 	require.NoError(t, err)
 	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{})
 	require.NoError(t, err)
@@ -68,13 +69,13 @@ func TestListErroringConnectionProvider(t *testing.T) {
 	require.NoError(t, err)
 	w.(*wallet).SetConnectionProvider(connectionProvider)
 	_, err = w.(*wallet).List(ctx, "")
-	require.EqualError(t, err, "failed to connect to endpoint: mock error")
+	require.EqualError(t, err, "failed to access dirk: mock error")
 }
 
 func TestListErroringServer(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
-	connectionProvider, err := NewBufConnectionProvider(ctx, &mock.ErroringListerServer{})
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.ErroringListerServer{}})
 	require.NoError(t, err)
 	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}})
 	require.NoError(t, err)
@@ -86,7 +87,7 @@ func TestListErroringServer(t *testing.T) {
 func TestListDenyingServer(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
-	connectionProvider, err := NewBufConnectionProvider(ctx, &mock.DenyingListerServer{})
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.DenyingListerServer{}})
 	require.NoError(t, err)
 	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}})
 	require.NoError(t, err)
@@ -98,7 +99,7 @@ func TestListDenyingServer(t *testing.T) {
 func TestList(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
-	connectionProvider, err := NewBufConnectionProvider(ctx, &mock.MockListerServer{})
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.MockListerServer{}})
 	require.NoError(t, err)
 	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}})
 	require.NoError(t, err)
@@ -142,7 +143,7 @@ func TestList(t *testing.T) {
 func TestAccounts(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
-	connectionProvider, err := NewBufConnectionProvider(ctx, &mock.MockListerServer{})
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.MockListerServer{}})
 	require.NoError(t, err)
 	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}})
 	require.NoError(t, err)
@@ -158,7 +159,7 @@ func TestAccounts(t *testing.T) {
 func TestAccountByName(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
-	connectionProvider, err := NewBufConnectionProvider(ctx, &mock.MockListerServer{})
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.MockListerServer{}})
 	require.NoError(t, err)
 	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}})
 	require.NoError(t, err)
@@ -176,7 +177,7 @@ func TestAccountByName(t *testing.T) {
 func TestAccountByID(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
-	connectionProvider, err := NewBufConnectionProvider(ctx, &mock.MockListerServer{})
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.MockListerServer{}})
 	require.NoError(t, err)
 	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}})
 	require.NoError(t, err)

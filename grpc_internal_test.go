@@ -1,4 +1,4 @@
-// Copyright © 2020 Weald Technology Trading
+// Copyright © 2020, 2021 Weald Technology Trading
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -45,23 +45,28 @@ func (c *ErroringConnectionProvider) Connection(ctx context.Context, endpoint *E
 	return nil, nil, errors.New("mock error")
 }
 
+// ListAccounts returns an error.
+func (c *ErroringConnectionProvider) ListAccounts(ctx context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
+	return nil, errors.New("mock error")
+}
+
 // BufConnectionProvider provides connections to a local GRPC mock for testing.
 type BufConnectionProvider struct {
-	mutex        sync.Mutex
-	servers      map[string]*grpc.Server
-	listeners    map[string]*bufconn.Listener
-	listerServer pb.ListerServer
+	mutex         sync.Mutex
+	servers       map[string]*grpc.Server
+	listeners     map[string]*bufconn.Listener
+	listerServers []pb.ListerServer
 }
 
 const bufSize = 1024 * 1024
 
 // NewBufConnectionProvider creates a new buffer connection provider.
 func NewBufConnectionProvider(ctx context.Context,
-	listerServer pb.ListerServer) (*BufConnectionProvider, error) {
+	listerServers []pb.ListerServer) (*BufConnectionProvider, error) {
 	return &BufConnectionProvider{
-		listerServer: listerServer,
-		servers:      make(map[string]*grpc.Server),
-		listeners:    make(map[string]*bufconn.Listener),
+		listerServers: listerServers,
+		servers:       make(map[string]*grpc.Server),
+		listeners:     make(map[string]*bufconn.Listener),
 	}, nil
 }
 
@@ -76,8 +81,9 @@ func (c *BufConnectionProvider) Connection(ctx context.Context, endpoint *Endpoi
 	server, exists := c.servers[serverAddress]
 	if !exists {
 		server = grpc.NewServer()
-		if c.listerServer != nil {
-			pb.RegisterListerServer(server, c.listerServer)
+		if len(c.listerServers) > 0 {
+			// Pick a server from the available list.
+			pb.RegisterListerServer(server, c.listerServers[int(endpoint.port)%len(c.listerServers)])
 		}
 		c.servers[serverAddress] = server
 		c.listeners[serverAddress] = bufconn.Listen(bufSize)
@@ -99,7 +105,22 @@ func (c *BufConnectionProvider) Connection(ctx context.Context, endpoint *Endpoi
 func TestListGRPC(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
-	connectionProvider, err := NewBufConnectionProvider(ctx, &mock.MockListerServer{})
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.MockListerServer{}})
+	require.NoError(t, err)
+	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}})
+	w.(*wallet).SetConnectionProvider(connectionProvider)
+	require.NoError(t, err)
+	accounts := 0
+	for range w.Accounts(ctx) {
+		accounts++
+	}
+	require.Equal(t, 8, accounts)
+}
+
+func TestListGRPCErroring(t *testing.T) {
+	require.NoError(t, e2types.InitBLS())
+	ctx := context.Background()
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&ErroringConnectionProvider{}, &mock.MockListerServer{}})
 	require.NoError(t, err)
 	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}})
 	w.(*wallet).SetConnectionProvider(connectionProvider)

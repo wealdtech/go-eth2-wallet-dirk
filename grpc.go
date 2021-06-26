@@ -1,4 +1,4 @@
-// Copyright © 2020 Weald Technology Trading
+// Copyright © 2020, 2021 Weald Technology Trading
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -28,6 +28,7 @@ import (
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 	e2types "github.com/wealdtech/go-eth2-types/v2"
 	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
@@ -88,19 +89,30 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 		return nil, errors.New("wallet has no endpoints")
 	}
 
-	conn, release, err := w.connectionProvider.Connection(ctx, w.endpoints[0])
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to connect to endpoint")
-	}
-	defer release()
+	var resp *pb.ListAccountsResponse
+	var err error
+	for i := 0; i < len(w.endpoints); i++ {
+		var conn *grpc.ClientConn
+		var release func()
+		conn, release, err = w.connectionProvider.Connection(ctx, w.endpoints[i])
+		if err != nil {
+			// Failed to obtain the connection.
+			continue
+		}
 
-	listerClient := pb.NewListerClient(conn)
-	req := &pb.ListAccountsRequest{
-		Paths: []string{
-			path,
-		},
+		listerClient := pb.NewListerClient(conn)
+		req := &pb.ListAccountsRequest{
+			Paths: []string{
+				path,
+			},
+		}
+		resp, err = listerClient.ListAccounts(ctx, req)
+		release()
+		if err == nil {
+			// Success.
+			break
+		}
 	}
-	resp, err := listerClient.ListAccounts(ctx, req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to access dirk")
 	}
@@ -480,6 +492,13 @@ func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
 	targetRoot []byte,
 	domain []byte) ([]e2types.Signature, error) {
 
+	// Ensure these really are all accounts.
+	for i := range accounts {
+		if _, isAccount := accounts[i].(*account); !isAccount {
+			return nil, errors.New("non-account provided in list")
+		}
+	}
+
 	req := &pb.SignBeaconAttestationsRequest{
 		Requests: make([]*pb.SignBeaconAttestationRequest, len(accounts)),
 	}
@@ -547,6 +566,13 @@ func (a *distributedAccount) SignBeaconAttestationsGRPC(ctx context.Context,
 	targetEpoch uint64,
 	targetRoot []byte,
 	domain []byte) ([]e2types.Signature, error) {
+
+	// Ensure these really are all distributed accounts.
+	for i := range accounts {
+		if _, isAccount := accounts[i].(*distributedAccount); !isAccount {
+			return nil, errors.New("non-distributed account provided in list")
+		}
+	}
 
 	thresholds := make([]uint32, len(accounts))
 	req := &pb.SignBeaconAttestationsRequest{
