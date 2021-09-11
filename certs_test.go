@@ -523,9 +523,5 @@ func SetupCerts(base string) error {
 	if err := ioutil.WriteFile(filepath.Join(base, "client-test03.crt"), []byte(clientTest03Crt), 0600); err != nil {
 		return err
 	}
-	if err := ioutil.WriteFile(filepath.Join(base, "client-test03.key"), []byte(clientTest03Key), 0600); err != nil {
-		return err
-	}
-
-	return nil
+	return ioutil.WriteFile(filepath.Join(base, "client-test03.key"), []byte(clientTest03Key), 0600)
 }

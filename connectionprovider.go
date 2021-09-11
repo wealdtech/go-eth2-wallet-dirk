@@ -60,6 +60,7 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 			}...)
 		}
 		destructor := func(val interface{}) {
+			//nolint:errcheck
 			val.(*grpc.ClientConn).Close()
 		}
 		pool = puddle.NewPool(constructor, destructor, 128)

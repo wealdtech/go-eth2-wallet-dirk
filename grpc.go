@@ -667,7 +667,7 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 
 		clients[id] = pb.NewSignerClient(conn)
 		if clients[id] == nil {
-			return nil, errors.New(fmt.Sprintf("failed to set up signing client for %v", endpoint))
+			return nil, fmt.Errorf("failed to set up signing client for %v", endpoint)
 		}
 	}
 
@@ -745,7 +745,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 
 		clients[id] = pb.NewSignerClient(conn)
 		if clients[id] == nil {
-			return nil, errors.New(fmt.Sprintf("failed to set up signing client for %v", endpoint))
+			return nil, fmt.Errorf("failed to set up signing client for %v", endpoint)
 		}
 	}
 
@@ -823,7 +823,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 
 		clients[id] = pb.NewSignerClient(conn)
 		if clients[id] == nil {
-			return nil, errors.New(fmt.Sprintf("failed to set up signing client for %v", endpoint))
+			return nil, fmt.Errorf("failed to set up signing client for %v", endpoint)
 		}
 	}
 
@@ -944,7 +944,7 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 
 		clients[id] = pb.NewSignerClient(conn)
 		if clients[id] == nil {
-			return nil, errors.New(fmt.Sprintf("failed to set up signing client for %v", endpoint))
+			return nil, fmt.Errorf("failed to set up signing client for %v", endpoint)
 		}
 	}
 
