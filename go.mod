@@ -3,7 +3,7 @@ module github.com/wealdtech/go-eth2-wallet-dirk
 go 1.14
 
 require (
-	github.com/attestantio/dirk v1.0.3
+	github.com/attestantio/dirk v1.0.4
 	github.com/google/uuid v1.3.0
 	github.com/herumi/bls-eth-go-binary v0.0.0-20210902234237-7763804ee078
 	github.com/jackc/puddle v1.1.4
