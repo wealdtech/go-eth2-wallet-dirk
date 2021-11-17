@@ -1,4 +1,4 @@
-// Copyright © 2020, 2021 Weald Technology Trading
+// Copyright © 2020, 2021 Weald Technology Trading.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -38,7 +38,9 @@ import (
 )
 
 // ErroringConnectionProvider throws errors.
-type ErroringConnectionProvider struct{}
+type ErroringConnectionProvider struct {
+	pb.UnimplementedListerServer
+}
 
 // Connection returns a connection and release function.
 func (c *ErroringConnectionProvider) Connection(ctx context.Context, endpoint *Endpoint) (*grpc.ClientConn, func(), error) {

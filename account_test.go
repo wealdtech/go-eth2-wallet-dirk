@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -90,7 +89,7 @@ func TestUnlockAccount(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	// #nosec G404
 	port := uint32(12000 + rand.Intn(4000))
-	capture, path, err := daemon.New(ctx, "", 1, port,
+	_, path, err := daemon.New(ctx, "", 1, port,
 		map[uint64]string{
 			1: fmt.Sprintf("signer-test01:%d", port),
 		})
@@ -114,7 +113,6 @@ func TestUnlockAccount(t *testing.T) {
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	account, err := wallet.(e2wtypes.WalletAccountByNameProvider).AccountByName(ctx, "Account 1")
-	fmt.Printf("%s", strings.Join(capture.Entries(), "\n"))
 	require.NoError(t, err)
 
 	// Unlock with incorrect passphrase.
