@@ -20,7 +20,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io/ioutil"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/herumi/bls-eth-go-binary/bls"
@@ -28,6 +30,7 @@ import (
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 	e2types "github.com/wealdtech/go-eth2-types/v2"
 	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -855,10 +858,10 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 	failed := make([]int, len(thresholds))
 	errored := make([]int, len(thresholds))
 	ids := make([][]bls.ID, len(thresholds))
-	signatures := make([][]bls.Sign, len(thresholds))
+	signatureBytes := make([][][]byte, len(thresholds))
 	for i := range ids {
 		ids[i] = make([]bls.ID, 0, len(clients))
-		signatures[i] = make([]bls.Sign, 0, len(clients))
+		signatureBytes[i] = make([][]byte, 0, len(clients))
 	}
 	for {
 		select {
@@ -880,11 +883,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 				case pb.ResponseState_SUCCEEDED:
 					signed[i]++
 					ids[i] = append(ids[i], *blsID(resp.id))
-					var sig bls.Sign
-					if err := sig.Deserialize(resp.resp.Responses[i].Signature); err != nil {
-						return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %d", resp.id))
-					}
-					signatures[i] = append(signatures[i], sig)
+					signatureBytes[i] = append(signatureBytes[i], resp.resp.Responses[i].Signature)
 				}
 			}
 		}
@@ -908,25 +907,40 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		}
 	}
 
+	// Take the signature bytes, turn them in to real signatures, then
+	// recover the final signature from the components.
+	sem := semaphore.NewWeighted(int64(runtime.GOMAXPROCS(0)))
+	var wg sync.WaitGroup
 	res := make([]e2types.Signature, len(thresholds))
 	var err error
 	for i := range ids {
-		if signed[i] != int(a.signingThreshold) {
-			// Not enough components to make the composite signature.
-			continue
-		}
-		var signature bls.Sign
-		if err := signature.Recover(signatures[i][0:a.signingThreshold], ids[i][0:a.signingThreshold]); err != nil {
-			// Invalid component signatures.
-			continue
-		}
-		res[i], err = e2types.BLSSignatureFromSig(signature)
-		if err != nil {
-			// Invalid composite signature.
-			res[i] = nil
-			continue
-		}
+		wg.Add(1)
+		go func(ctx context.Context, sem *semaphore.Weighted, wg *sync.WaitGroup, i int) {
+			defer wg.Done()
+			if signed[i] != int(thresholds[i]) {
+				// Not enough components to make the composite signature.
+				return
+			}
+
+			components := make([]bls.Sign, thresholds[i])
+			for j := 0; j < int(thresholds[i]); j++ {
+				if err := components[j].Deserialize(signatureBytes[i][j]); err != nil {
+					return
+				}
+			}
+			var signature bls.Sign
+			if err := signature.Recover(components, ids[i][0:thresholds[i]]); err != nil {
+				// Invalid components.
+				return
+			}
+			res[i], err = e2types.BLSSignatureFromSig(signature)
+			if err != nil {
+				// Invalid composite signature.
+				res[i] = nil
+			}
+		}(ctx, sem, &wg, i)
 	}
+	wg.Wait()
 
 	return res, nil
 }

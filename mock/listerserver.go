@@ -1,4 +1,4 @@
-// Copyright © 2020 Weald Technology Trading
+// Copyright © 2020, 2021 Weald Technology Trading.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -29,7 +29,9 @@ func _byte(input string) []byte {
 }
 
 // ErroringListerServer is a mock lister server that returns errors.
-type ErroringListerServer struct{}
+type ErroringListerServer struct {
+	pb.UnimplementedListerServer
+}
 
 // ListAccounts returns an error.
 func (s *ErroringListerServer) ListAccounts(ctx context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
@@ -39,7 +41,9 @@ func (s *ErroringListerServer) ListAccounts(ctx context.Context, in *pb.ListAcco
 }
 
 // DenyingListerServer is a mock lister server that returns denials.
-type DenyingListerServer struct{}
+type DenyingListerServer struct {
+	pb.UnimplementedListerServer
+}
 
 // ListAccounts returns an error.
 func (s *DenyingListerServer) ListAccounts(ctx context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
@@ -49,7 +53,9 @@ func (s *DenyingListerServer) ListAccounts(ctx context.Context, in *pb.ListAccou
 }
 
 // MockListerServer is a mock lister server that returns static accounts.
-type MockListerServer struct{}
+type MockListerServer struct {
+	pb.UnimplementedListerServer
+}
 
 // ListAccounts returns static accounts.
 func (s *MockListerServer) ListAccounts(ctx context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
