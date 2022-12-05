@@ -1,4 +1,4 @@
-// Copyright © 2020, 2021 Weald Technology Trading
+// Copyright © 2020 - 2022 Weald Technology Trading
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -30,6 +30,9 @@ import (
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 	e2types "github.com/wealdtech/go-eth2-types/v2"
 	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -81,6 +84,12 @@ func Credentials(ctx context.Context, clientCert []byte, clientKey []byte, caCer
 }
 
 func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Account, error) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "List", trace.WithAttributes(
+		attribute.String("wallet", w.Name()),
+		attribute.String("account_path", accountPath),
+	))
+	defer span.End()
+
 	var path string
 	if accountPath == "" {
 		path = w.Name()
@@ -188,6 +197,12 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 
 // Unlock unlocks an account.
 func (w *wallet) UnlockAccount(ctx context.Context, accountName string, passphrase []byte) (bool, error) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "UnlockAccount", trace.WithAttributes(
+		attribute.String("wallet", w.Name()),
+		attribute.String("account", accountName),
+	))
+	defer span.End()
+
 	conn, release, err := w.connectionProvider.Connection(ctx, w.endpoints[0])
 	if err != nil {
 		return false, errors.Wrap(err, "failed to connect to endpoint")
@@ -211,6 +226,12 @@ func (w *wallet) UnlockAccount(ctx context.Context, accountName string, passphra
 
 // Lock locks an account.
 func (w *wallet) LockAccount(ctx context.Context, accountName string) error {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "LockAccount", trace.WithAttributes(
+		attribute.String("wallet", w.Name()),
+		attribute.String("account", accountName),
+	))
+	defer span.End()
+
 	conn, release, err := w.connectionProvider.Connection(ctx, w.endpoints[0])
 	if err != nil {
 		return errors.Wrap(err, "failed to connect to endpoint")
@@ -234,7 +255,16 @@ func (w *wallet) LockAccount(ctx context.Context, accountName string) error {
 // SignGRPC signs data over GRPC.
 func (a *account) SignGRPC(ctx context.Context,
 	root []byte,
-	domain []byte) (e2types.Signature, error) {
+	domain []byte,
+) (
+	e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignGRPC", trace.WithAttributes(
+		attribute.String("wallet", a.wallet.Name()),
+		attribute.String("account", a.Name()),
+	))
+	defer span.End()
 
 	if len(root) != 32 {
 		return nil, errors.New("data must be 32 bytes in length")
@@ -281,7 +311,16 @@ func (a *account) SignGRPC(ctx context.Context,
 // SignGRPC signs data over GRPC.
 func (a *distributedAccount) SignGRPC(ctx context.Context,
 	root []byte,
-	domain []byte) (e2types.Signature, error) {
+	domain []byte,
+) (
+	e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignGRPC", trace.WithAttributes(
+		attribute.String("wallet", a.wallet.Name()),
+		attribute.String("account", a.Name()),
+	))
+	defer span.End()
 
 	if len(root) != 32 {
 		return nil, errors.New("data must be 32 bytes in length")
@@ -308,7 +347,17 @@ func (a *account) SignBeaconProposalGRPC(ctx context.Context,
 	parentRoot []byte,
 	stateRoot []byte,
 	bodyRoot []byte,
-	domain []byte) (e2types.Signature, error) {
+	domain []byte,
+) (
+	e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconProposalGRPC", trace.WithAttributes(
+		attribute.Int64("slot", int64(slot)),
+		attribute.String("wallet", a.wallet.Name()),
+		attribute.String("account", a.Name()),
+	))
+	defer span.End()
 
 	req := &pb.SignBeaconProposalRequest{
 		Id: &pb.SignBeaconProposalRequest_Account{Account: fmt.Sprintf("%s/%s", a.wallet.Name(), a.Name())},
@@ -362,7 +411,17 @@ func (a *distributedAccount) SignBeaconProposalGRPC(ctx context.Context,
 	parentRoot []byte,
 	stateRoot []byte,
 	bodyRoot []byte,
-	domain []byte) (e2types.Signature, error) {
+	domain []byte,
+) (
+	e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconProposalGRPC", trace.WithAttributes(
+		attribute.Int64("slot", int64(slot)),
+		attribute.String("wallet", a.wallet.Name()),
+		attribute.String("account", a.Name()),
+	))
+	defer span.End()
 
 	req := &pb.SignBeaconProposalRequest{
 		Id: &pb.SignBeaconProposalRequest_Account{Account: fmt.Sprintf("%s/%s", a.wallet.Name(), a.Name())},
@@ -393,7 +452,17 @@ func (a *account) SignBeaconAttestationGRPC(ctx context.Context,
 	sourceRoot []byte,
 	targetEpoch uint64,
 	targetRoot []byte,
-	domain []byte) (e2types.Signature, error) {
+	domain []byte,
+) (
+	e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconAttestationGRPC", trace.WithAttributes(
+		attribute.Int64("slot", int64(slot)),
+		attribute.String("wallet", a.wallet.Name()),
+		attribute.String("account", a.Name()),
+	))
+	defer span.End()
 
 	req := &pb.SignBeaconAttestationRequest{
 		Id: &pb.SignBeaconAttestationRequest_Account{Account: fmt.Sprintf("%s/%s", a.wallet.Name(), a.Name())},
@@ -455,7 +524,17 @@ func (a *distributedAccount) SignBeaconAttestationGRPC(ctx context.Context,
 	sourceRoot []byte,
 	targetEpoch uint64,
 	targetRoot []byte,
-	domain []byte) (e2types.Signature, error) {
+	domain []byte,
+) (
+	e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconAttestationGRPC", trace.WithAttributes(
+		attribute.Int64("slot", int64(slot)),
+		attribute.String("wallet", a.wallet.Name()),
+		attribute.String("account", a.Name()),
+	))
+	defer span.End()
 
 	req := &pb.SignBeaconAttestationRequest{
 		Id: &pb.SignBeaconAttestationRequest_Account{Account: fmt.Sprintf("%s/%s", a.wallet.Name(), a.Name())},
@@ -493,7 +572,16 @@ func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
 	sourceRoot []byte,
 	targetEpoch uint64,
 	targetRoot []byte,
-	domain []byte) ([]e2types.Signature, error) {
+	domain []byte,
+) (
+	[]e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconAttestationsGRPC", trace.WithAttributes(
+		attribute.Int64("slot", int64(slot)),
+		attribute.Int("accounts", len(accounts)),
+	))
+	defer span.End()
 
 	// Ensure these really are all accounts.
 	for i := range accounts {
@@ -568,7 +656,16 @@ func (a *distributedAccount) SignBeaconAttestationsGRPC(ctx context.Context,
 	sourceRoot []byte,
 	targetEpoch uint64,
 	targetRoot []byte,
-	domain []byte) ([]e2types.Signature, error) {
+	domain []byte,
+) (
+	[]e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconAttestationsGRPC", trace.WithAttributes(
+		attribute.Int64("slot", int64(slot)),
+		attribute.Int("accounts", len(accounts)),
+	))
+	defer span.End()
 
 	// Ensure these really are all distributed accounts.
 	for i := range accounts {
@@ -615,7 +712,17 @@ func (w *wallet) GenerateDistributedAccount(ctx context.Context,
 	accountName string,
 	participants uint32,
 	signingThreshold uint32,
-	passphrase []byte) (e2wtypes.Account, error) {
+	passphrase []byte,
+) (
+	e2wtypes.Account,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "GenerateDistributedAccount", trace.WithAttributes(
+		attribute.String("wallet", w.Name()),
+		attribute.String("account", accountName),
+	))
+	defer span.End()
+
 	conn, release, err := w.connectionProvider.Connection(ctx, w.endpoints[0])
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to connect to endpoint")
@@ -659,6 +766,9 @@ func (w *wallet) GenerateDistributedAccount(ctx context.Context,
 
 // thresholdSign handles signing, with a threshold of responses.
 func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequest) (e2types.Signature, error) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSign")
+	defer span.End()
+
 	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
 
 	for id, endpoint := range a.participants {
@@ -694,6 +804,7 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 			}
 		}(client, id, req)
 	}
+	span.AddEvent("Contacted all servers")
 
 	// Wait for enough responses (or timeout)
 	signed := 0
@@ -723,6 +834,12 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 			}
 		}
 	}
+	span.AddEvent("Received responses", trace.WithAttributes(
+		attribute.Int("signed", signed),
+		attribute.Int("denied", denied),
+		attribute.Int("failed", failed),
+		attribute.Int("errored", errored),
+	))
 	if signed != int(a.signingThreshold) {
 		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
@@ -731,12 +848,16 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 	if err := signature.Recover(signatures, ids); err != nil {
 		return nil, errors.Wrap(err, "failed to recover composite signature")
 	}
+	span.AddEvent("Recovered signature")
 
 	return e2types.BLSSignatureFromSig(signature)
 }
 
 // thresholdSignBeaconAttestation handles signing, with a threshold of responses.
 func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context, req *pb.SignBeaconAttestationRequest) (e2types.Signature, error) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconAttestation")
+	defer span.End()
+
 	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
 
 	for id, endpoint := range a.participants {
@@ -772,6 +893,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 			}
 		}(client, id, req)
 	}
+	span.AddEvent("Contacted all servers")
 
 	// Wait for enough responses (or context done).
 	signed := 0
@@ -801,6 +923,12 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 			}
 		}
 	}
+	span.AddEvent("Received responses", trace.WithAttributes(
+		attribute.Int("signed", signed),
+		attribute.Int("denied", denied),
+		attribute.Int("failed", failed),
+		attribute.Int("errored", errored),
+	))
 	if signed != int(a.signingThreshold) {
 		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
@@ -809,14 +937,17 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 	if err := signature.Recover(signatures, ids); err != nil {
 		return nil, errors.Wrap(err, "failed to recover composite signature")
 	}
+	span.AddEvent("Recovered signature")
 
 	return e2types.BLSSignatureFromSig(signature)
 }
 
 // thresholdSignBeaconAttestations handles signing, with a threshold of responses.
 func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context, req *pb.SignBeaconAttestationsRequest, thresholds []uint32) ([]e2types.Signature, error) {
-	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconAttestations")
+	defer span.End()
 
+	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
 	for id, endpoint := range a.participants {
 		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
 		if err != nil {
@@ -850,6 +981,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 			}
 		}(client, id, req)
 	}
+	span.AddEvent("Contacted all servers")
 
 	// Wait for enough responses (or context done).
 	responses := 0
@@ -906,6 +1038,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 			break
 		}
 	}
+	span.AddEvent("Received responses")
 
 	// Take the signature bytes, turn them in to real signatures, then
 	// recover the final signature from the components.
@@ -941,12 +1074,16 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		}(ctx, sem, &wg, i)
 	}
 	wg.Wait()
+	span.AddEvent("Recovered signatures")
 
 	return res, nil
 }
 
 // thresholdSignBeaconProposal handles signing, with a threshold of responses.
 func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, req *pb.SignBeaconProposalRequest) (e2types.Signature, error) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconProposal")
+	defer span.End()
+
 	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
 
 	for id, endpoint := range a.participants {
@@ -982,6 +1119,7 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 			}
 		}(client, id, req)
 	}
+	span.AddEvent("Contacted all servers")
 
 	// Wait for enough responses (or context done).
 	signed := 0
@@ -1011,6 +1149,12 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 			}
 		}
 	}
+	span.AddEvent("Received responses", trace.WithAttributes(
+		attribute.Int("signed", signed),
+		attribute.Int("denied", denied),
+		attribute.Int("failed", failed),
+		attribute.Int("errored", errored),
+	))
 	if signed != int(a.signingThreshold) {
 		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
@@ -1019,6 +1163,7 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 	if err := signature.Recover(signatures, ids); err != nil {
 		return nil, errors.Wrap(err, "failed to recover composite signature")
 	}
+	span.AddEvent("Recovered signature")
 
 	return e2types.BLSSignatureFromSig(signature)
 }

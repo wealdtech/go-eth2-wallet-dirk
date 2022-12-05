@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/jackc/puddle"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -57,6 +58,7 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 				grpc.WithTransportCredentials(c.credentials),
 				// Maximum receive value 64 MB.
 				grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64 * 1024 * 1024)),
+				grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
 			}...)
 		}
 		destructor := func(val interface{}) {
