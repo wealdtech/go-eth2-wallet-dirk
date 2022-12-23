@@ -1,4 +1,4 @@
-// Copyright © 2020 Weald Technology Trading
+// Copyright © 2020, 2022 Weald Technology Trading.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -47,7 +47,38 @@ func newWallet() *wallet {
 	}
 }
 
+// Open opens an existing wallet with the given name.
+func Open(ctx context.Context,
+	params ...Parameter,
+) (
+	e2wtypes.Wallet,
+	error,
+) {
+	parameters, err := parseAndCheckParameters(params...)
+	if err != nil {
+		return nil, errors.Wrap(err, "problem with parameters")
+	}
+
+	wallet := newWallet()
+	wallet.name = parameters.name
+	wallet.timeout = parameters.timeout
+	wallet.endpoints = make([]*Endpoint, len(parameters.endpoints))
+	wallet.connectionProvider = &PuddleConnectionProvider{
+		connectionPools: make(map[string]*puddle.Pool),
+		credentials:     parameters.credentials.Clone(),
+	}
+	for i := range parameters.endpoints {
+		wallet.endpoints[i] = &Endpoint{
+			host: parameters.endpoints[i].host,
+			port: parameters.endpoints[i].port,
+		}
+	}
+
+	return wallet, nil
+}
+
 // OpenWallet opens an existing wallet with the given name.
+// Deprecated; use Open() instead.
 func OpenWallet(ctx context.Context, name string, credentials credentials.TransportCredentials, endpoints []*Endpoint) (e2wtypes.Wallet, error) {
 	wallet := newWallet()
 	wallet.name = name

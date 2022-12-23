@@ -103,6 +103,8 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 
 	var resp *pb.ListAccountsResponse
 	var err error
+	ctx, cancelFunc := context.WithTimeout(ctx, w.timeout)
+	defer cancelFunc()
 	for i := 0; i < len(w.endpoints); i++ {
 		var conn *grpc.ClientConn
 		var release func()
@@ -214,6 +216,8 @@ func (w *wallet) UnlockAccount(ctx context.Context, accountName string, passphra
 		Account:    fmt.Sprintf("%s/%s", w.Name(), accountName),
 		Passphrase: passphrase,
 	}
+	ctx, cancelFunc := context.WithTimeout(ctx, w.timeout)
+	defer cancelFunc()
 	resp, err := accountManagerClient.Unlock(ctx, req)
 	if err != nil {
 		return false, errors.Wrap(err, "failed to access dirk")
@@ -242,6 +246,8 @@ func (w *wallet) LockAccount(ctx context.Context, accountName string) error {
 	req := &pb.LockAccountRequest{
 		Account: fmt.Sprintf("%s/%s", w.Name(), accountName),
 	}
+	ctx, cancelFunc := context.WithTimeout(ctx, w.timeout)
+	defer cancelFunc()
 	resp, err := accountManagerClient.Lock(ctx, req)
 	if err != nil {
 		return errors.Wrap(err, "failed to access dirk")
@@ -286,6 +292,8 @@ func (a *account) SignGRPC(ctx context.Context,
 	if client == nil {
 		return nil, errors.New("failed to set up signing client")
 	}
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	resp, err := client.Sign(ctx, req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
@@ -332,6 +340,8 @@ func (a *distributedAccount) SignGRPC(ctx context.Context,
 		Domain: domain,
 	}
 
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	sig, err := a.thresholdSign(ctx, req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
@@ -382,6 +392,8 @@ func (a *account) SignBeaconProposalGRPC(ctx context.Context,
 	if client == nil {
 		return nil, errors.New("failed to set up signing client")
 	}
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	resp, err := client.SignBeaconProposal(ctx, req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
@@ -435,6 +447,8 @@ func (a *distributedAccount) SignBeaconProposalGRPC(ctx context.Context,
 		Domain: domain,
 	}
 
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	sig, err := a.thresholdSignBeaconProposal(ctx, req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
@@ -493,6 +507,8 @@ func (a *account) SignBeaconAttestationGRPC(ctx context.Context,
 	if client == nil {
 		return nil, errors.New("failed to set up signing client")
 	}
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	resp, err := client.SignBeaconAttestation(ctx, req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
@@ -624,6 +640,8 @@ func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
 	if client == nil {
 		return nil, errors.New("failed to set up signing client")
 	}
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	resp, err := client.SignBeaconAttestations(ctx, req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signatures")
@@ -736,6 +754,8 @@ func (w *wallet) GenerateDistributedAccount(ctx context.Context,
 		SigningThreshold: signingThreshold,
 		Passphrase:       passphrase,
 	}
+	ctx, cancelFunc := context.WithTimeout(ctx, w.timeout)
+	defer cancelFunc()
 	resp, err := accountClient.Generate(ctx, req)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to access dirk")
@@ -791,6 +811,8 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 	respChannel := make(chan *multiSignResponse, len(clients))
 	errChannel := make(chan error, len(clients))
 
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	for id, client := range clients {
 		go func(client pb.SignerClient, id uint64, req *pb.SignRequest) {
 			resp, err := client.Sign(ctx, req)
@@ -880,6 +902,8 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 	respChannel := make(chan *thresholdSignResponse, len(clients))
 	errChannel := make(chan error, len(clients))
 
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	for id, client := range clients {
 		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconAttestationRequest) {
 			resp, err := client.SignBeaconAttestation(ctx, req)
@@ -968,6 +992,8 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 	respChannel := make(chan *thresholdSignResponse, len(clients))
 	errChannel := make(chan error, len(clients))
 
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	for id, client := range clients {
 		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconAttestationsRequest) {
 			resp, err := client.SignBeaconAttestations(ctx, req)
@@ -1106,6 +1132,8 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 	respChannel := make(chan *multiSignResponse, len(clients))
 	errChannel := make(chan error, len(clients))
 
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
 	for id, client := range clients {
 		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconProposalRequest) {
 			resp, err := client.SignBeaconProposal(ctx, req)
