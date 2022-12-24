@@ -29,7 +29,7 @@ go get github.com/wealdtech/go-eth2-wallet-dirk
 ## Usage
 
 
-Access to the wallet is through the `OpenWallet()` call.  
+Access to the wallet is through the `Open()` call.  
 Access to the `wallet` is usually via [go-eth2-wallet](https://github.com/wealdtech/go-eth2-wallet); the first two examples below shows how this can be achieved.
 
 This wallet generates keys non-deterministically, _i.e._ there is no relationship between keys or idea of a "seed".
@@ -45,13 +45,20 @@ Note that although non-deterministic wallets do not have passphrases they still 
 package main
 
 import (
-	"github.com/wealdtech/go-eth2-dirk"
+    "github.com/wealdtech/go-eth2-dirk"
+    "google.golang.org/grpc/credentials"
 )
 
 func main() {
-
     // Open a wallet
-    wallet, err := dirk.OpenWallet(context.Background(), "My wallet")
+    wallet, err := dirk.Open(context.Background(),
+        dirk.WithName("My wallet"),
+        dirk.WithEndpoints([]*Endpoint{
+            {"host": "host1.example.com", port: 12345},
+            {"host": "host2.example.com", port: 12345},
+        }),
+        dirk.WithCredentials(credentials.NewTLS(tlsConfig)),
+    )
     if err != nil {
         panic(err)
     }
@@ -65,18 +72,25 @@ func main() {
 package main
 
 import (
-	"github.com/wealdtech/go-eth2-wallet-dirk"
+    "github.com/wealdtech/go-eth2-wallet-dirk"
 )
 
 func main() {
 
     // Open a wallet
-    wallet, err := dirk.OpenWallet(context.Background(), "My wallet")
+    wallet, err := dirk.Open(context.Background(),
+        dirk.WithName("My wallet"),
+        dirk.WithEndpoints([]*Endpoint{
+            {"host": "host1.example.com", port: 12345},
+            {"host": "host2.example.com", port: 12345},
+        }),
+        dirk.WithCredentials(credentials.NewTLS(tlsConfig)),
+    )
     if err != nil {
         panic(err)
     }
 
-    // Dirk walllets have their own rules as to if a client is allowed to
+    // Dirk walllets have their own rules as to if a client is allowed to unlock them.
     err = wallet.(e2wtypes.WalletLocker).Unlock(nil)
     if err != nil {
         panic(err)

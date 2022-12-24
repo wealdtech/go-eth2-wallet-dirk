@@ -21,10 +21,12 @@ import (
 )
 
 type parameters struct {
-	timeout     time.Duration
-	name        string
-	credentials credentials.TransportCredentials
-	endpoints   []*Endpoint
+	monitor         Metrics
+	timeout         time.Duration
+	name            string
+	credentials     credentials.TransportCredentials
+	endpoints       []*Endpoint
+	poolConnections int32
 }
 
 // Parameter is the interface for service parameters.
@@ -36,6 +38,13 @@ type parameterFunc func(*parameters)
 
 func (f parameterFunc) apply(p *parameters) {
 	f(p)
+}
+
+// WithMonitor sets the monitor for the wallet.
+func WithMonitor(monitor Metrics) Parameter {
+	return parameterFunc(func(p *parameters) {
+		p.monitor = monitor
+	})
 }
 
 // WithTimeout sets the timeout for wallet requests.
@@ -66,10 +75,18 @@ func WithEndpoints(endpoints []*Endpoint) Parameter {
 	})
 }
 
+// WithPoolConnections sets the number of connections for the wallet connection pool.
+func WithPoolConnections(connections int32) Parameter {
+	return parameterFunc(func(p *parameters) {
+		p.poolConnections = connections
+	})
+}
+
 // parseAndCheckParameters parses and checks parameters to ensure that mandatory parameters are present and correct.
 func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 	parameters := parameters{
-		timeout: 30 * time.Second,
+		timeout:         30 * time.Second,
+		poolConnections: 128,
 	}
 	for _, p := range params {
 		if params != nil {
@@ -77,6 +94,9 @@ func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 		}
 	}
 
+	if parameters.monitor == nil {
+		return nil, errors.New("no monitor specified")
+	}
 	if parameters.timeout == 0 {
 		return nil, errors.New("no timeout specified")
 	}
@@ -88,6 +108,9 @@ func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 	}
 	if len(parameters.endpoints) == 0 {
 		return nil, errors.New("no endpoints specified")
+	}
+	if parameters.poolConnections == 0 {
+		return nil, errors.New("no pool connections specified")
 	}
 
 	return &parameters, nil

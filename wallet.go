@@ -18,7 +18,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/puddle"
 	"github.com/pkg/errors"
 	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
 	"google.golang.org/grpc/credentials"
@@ -59,12 +58,17 @@ func Open(ctx context.Context,
 		return nil, errors.Wrap(err, "problem with parameters")
 	}
 
+	if err := registerMetrics(ctx, parameters.monitor); err != nil {
+		return nil, errors.Wrap(err, "failed to register metrics")
+	}
+
 	wallet := newWallet()
 	wallet.name = parameters.name
 	wallet.timeout = parameters.timeout
 	wallet.endpoints = make([]*Endpoint, len(parameters.endpoints))
 	wallet.connectionProvider = &PuddleConnectionProvider{
-		connectionPools: make(map[string]*puddle.Pool),
+		name:            parameters.name,
+		poolConnections: parameters.poolConnections,
 		credentials:     parameters.credentials.Clone(),
 	}
 	for i := range parameters.endpoints {
@@ -84,8 +88,7 @@ func OpenWallet(ctx context.Context, name string, credentials credentials.Transp
 	wallet.name = name
 	wallet.endpoints = make([]*Endpoint, len(endpoints))
 	wallet.connectionProvider = &PuddleConnectionProvider{
-		connectionPools: make(map[string]*puddle.Pool),
-		credentials:     credentials.Clone(),
+		credentials: credentials.Clone(),
 	}
 	for i := range endpoints {
 		wallet.endpoints[i] = &Endpoint{
