@@ -76,3 +76,10 @@ type Metrics interface {
 	// Presenter returns the presenter for the metrics.
 	Presenter() string
 }
+
+type nullMetrics struct{}
+
+// Presenter returns the presenter for the metrics.
+func (m *nullMetrics) Presenter() string {
+	return "null"
+}

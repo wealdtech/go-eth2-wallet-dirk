@@ -72,7 +72,7 @@ func (a *account) Wallet() e2wtypes.Wallet {
 func (a *account) Lock(ctx context.Context) error {
 	err := a.wallet.LockAccount(ctx, a.name)
 	if err != nil {
-		return errors.Wrap(err, "failed attempt to unlock account")
+		return errors.Wrap(err, "failed attempt to lock account")
 	}
 	return nil
 }

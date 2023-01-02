@@ -87,6 +87,7 @@ func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 	parameters := parameters{
 		timeout:         30 * time.Second,
 		poolConnections: 128,
+		monitor:         &nullMetrics{},
 	}
 	for _, p := range params {
 		if params != nil {
