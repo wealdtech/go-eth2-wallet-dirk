@@ -21,7 +21,6 @@ import (
 )
 
 func TestEndpoint(t *testing.T) {
-
 	endpoint := dirk.NewEndpoint("server-test01", 12345)
 	require.Equal(t, "server-test01:12345", endpoint.String())
 }

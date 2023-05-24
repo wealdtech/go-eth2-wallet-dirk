@@ -19,7 +19,7 @@ import (
 	"crypto/x509"
 	"encoding/binary"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -41,17 +41,17 @@ import (
 // ComposeCredentials composes a set of transport credentials given individual certificate and key paths.
 // The CA certificate path can be empty.
 func ComposeCredentials(ctx context.Context, certPath string, keyPath string, caCertPath string) (credentials.TransportCredentials, error) {
-	clientCert, err := ioutil.ReadFile(certPath)
+	clientCert, err := os.ReadFile(certPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain client certificate")
 	}
-	clientKey, err := ioutil.ReadFile(keyPath)
+	clientKey, err := os.ReadFile(keyPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain client key")
 	}
 	var caCert []byte
 	if caCertPath != "" {
-		caCert, err = ioutil.ReadFile(caCertPath)
+		caCert, err = os.ReadFile(caCertPath)
 		if err != nil {
 			return nil, errors.Wrap(err, "failed to obtain CA certificate")
 		}
@@ -61,7 +61,7 @@ func ComposeCredentials(ctx context.Context, certPath string, keyPath string, ca
 }
 
 // Credentials composes a set of transport credentials given a client certificate and an optional CA certificate.
-func Credentials(ctx context.Context, clientCert []byte, clientKey []byte, caCert []byte) (credentials.TransportCredentials, error) {
+func Credentials(_ context.Context, clientCert []byte, clientKey []byte, caCert []byte) (credentials.TransportCredentials, error) {
 	clientPair, err := tls.X509KeyPair(clientCert, clientKey)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to load client keypair")
@@ -153,10 +153,7 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 		} else {
 			name = account.Name
 		}
-		account, err := newAccount(w, uuid, name, pubKey, 1)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to create new account")
-		}
+		account := newAccount(w, uuid, name, pubKey, 1)
 		accounts = append(accounts, account)
 	}
 	for _, account := range resp.DistributedAccounts {
@@ -188,12 +185,10 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 				port: participant.Port,
 			}
 		}
-		account, err := newDistributedAccount(w, uuid, name, pubKey, compositePubKey, account.SigningThreshold, participants, 1)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to instantiate account")
-		}
+		account := newDistributedAccount(w, uuid, name, pubKey, compositePubKey, account.SigningThreshold, participants, 1)
 		accounts = append(accounts, account)
 	}
+
 	return accounts, nil
 }
 
@@ -225,6 +220,7 @@ func (w *wallet) UnlockAccount(ctx context.Context, accountName string, passphra
 	if resp.State == pb.ResponseState_FAILED {
 		return false, errors.New("request to unlock account failed")
 	}
+
 	return resp.State == pb.ResponseState_SUCCEEDED, nil
 }
 
@@ -255,6 +251,7 @@ func (w *wallet) LockAccount(ctx context.Context, accountName string) error {
 	if resp.State == pb.ResponseState_FAILED {
 		return errors.New("request to lock account failed")
 	}
+
 	return nil
 }
 
@@ -872,6 +869,7 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 	}
 	span.AddEvent("Recovered signature")
 
+	//nolint:wrapcheck
 	return e2types.BLSSignatureFromSig(signature)
 }
 
@@ -963,6 +961,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 	}
 	span.AddEvent("Recovered signature")
 
+	//nolint:wrapcheck
 	return e2types.BLSSignatureFromSig(signature)
 }
 
@@ -1074,7 +1073,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 	var err error
 	for i := range ids {
 		wg.Add(1)
-		go func(ctx context.Context, sem *semaphore.Weighted, wg *sync.WaitGroup, i int) {
+		go func(_ context.Context, _ *semaphore.Weighted, wg *sync.WaitGroup, i int) {
 			defer wg.Done()
 			if signed[i] != int(thresholds[i]) {
 				// Not enough components to make the composite signature.
@@ -1193,6 +1192,7 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 	}
 	span.AddEvent("Recovered signature")
 
+	//nolint:wrapcheck
 	return e2types.BLSSignatureFromSig(signature)
 }
 
@@ -1204,5 +1204,6 @@ func blsID(id uint64) *bls.ID {
 	if err := res.SetLittleEndian(buf[:]); err != nil {
 		panic(err)
 	}
+
 	return &res
 }

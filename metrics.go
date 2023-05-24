@@ -41,10 +41,11 @@ func registerMetrics(ctx context.Context, monitor Metrics) error {
 	if monitor.Presenter() == "prometheus" {
 		return registerPrometheusMetrics(ctx)
 	}
+
 	return nil
 }
 
-func registerPrometheusMetrics(ctx context.Context) error {
+func registerPrometheusMetrics(_ context.Context) error {
 	if connections == nil {
 		connections = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: "dirk",

@@ -59,7 +59,8 @@ const bufSize = 1024 * 1024
 
 // NewBufConnectionProvider creates a new buffer connection provider.
 func NewBufConnectionProvider(ctx context.Context,
-	listerServers []pb.ListerServer) (*BufConnectionProvider, error) {
+	listerServers []pb.ListerServer,
+) (*BufConnectionProvider, error) {
 	return &BufConnectionProvider{
 		listerServers: listerServers,
 		servers:       make(map[string]*grpc.Server),

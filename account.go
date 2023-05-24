@@ -36,8 +36,8 @@ func newAccount(wallet *wallet,
 	id uuid.UUID,
 	name string,
 	pubKey e2types.PublicKey,
-	version uint) (*account, error) {
-
+	version uint,
+) *account {
 	return &account{
 		wallet:  wallet,
 		id:      id,
@@ -45,7 +45,7 @@ func newAccount(wallet *wallet,
 		pubKey:  pubKey,
 		version: version,
 		mutex:   new(sync.RWMutex),
-	}, nil
+	}
 }
 
 // ID provides the ID for the account.
@@ -74,6 +74,7 @@ func (a *account) Lock(ctx context.Context) error {
 	if err != nil {
 		return errors.Wrap(err, "failed attempt to lock account")
 	}
+
 	return nil
 }
 
@@ -86,12 +87,13 @@ func (a *account) Unlock(ctx context.Context, passphrase []byte) error {
 	if !unlocked {
 		return errors.New("unlock attempt failed")
 	}
+
 	return nil
 }
 
 // IsUnlocked returns true if the account is unlocked.
 // Because unlocking is a handled remotely we assume true, and let it deal with it.
-func (a *account) IsUnlocked(ctx context.Context) (bool, error) {
+func (a *account) IsUnlocked(_ context.Context) (bool, error) {
 	return true, nil
 }
 
@@ -101,6 +103,7 @@ func (a *account) SignGeneric(ctx context.Context, data []byte, domain []byte) (
 	if err != nil {
 		return nil, err
 	}
+
 	return sig, nil
 }
 
@@ -111,11 +114,13 @@ func (a *account) SignBeaconProposal(ctx context.Context,
 	parentRoot []byte,
 	stateRoot []byte,
 	bodyRoot []byte,
-	domain []byte) (e2types.Signature, error) {
+	domain []byte,
+) (e2types.Signature, error) {
 	sig, err := a.SignBeaconProposalGRPC(ctx, slot, proposerIndex, parentRoot, stateRoot, bodyRoot, domain)
 	if err != nil {
 		return nil, err
 	}
+
 	return sig, nil
 }
 
@@ -128,11 +133,13 @@ func (a *account) SignBeaconAttestation(ctx context.Context,
 	sourceRoot []byte,
 	targetEpoch uint64,
 	targetRoot []byte,
-	domain []byte) (e2types.Signature, error) {
+	domain []byte,
+) (e2types.Signature, error) {
 	sig, err := a.SignBeaconAttestationGRPC(ctx, slot, committeeIndex, blockRoot, sourceEpoch, sourceRoot, targetEpoch, targetRoot, domain)
 	if err != nil {
 		return nil, err
 	}
+
 	return sig, nil
 }
 
@@ -146,10 +153,12 @@ func (a *account) SignBeaconAttestations(ctx context.Context,
 	sourceRoot []byte,
 	targetEpoch uint64,
 	targetRoot []byte,
-	domain []byte) ([]e2types.Signature, error) {
+	domain []byte,
+) ([]e2types.Signature, error) {
 	sigs, err := a.SignBeaconAttestationsGRPC(ctx, slot, accounts, committeeIndices, blockRoot, sourceEpoch, sourceRoot, targetEpoch, targetRoot, domain)
 	if err != nil {
 		return nil, err
 	}
+
 	return sigs, nil
 }

@@ -37,7 +37,7 @@ type wallet struct {
 	connectionProvider ConnectionProvider
 }
 
-// newWallet creates a new wallet
+// newWallet creates a new wallet.
 func newWallet() *wallet {
 	return &wallet{
 		id:      uuid.MustParse("00000000-0000-0000-0000-000000000000"),
@@ -83,7 +83,7 @@ func Open(ctx context.Context,
 
 // OpenWallet opens an existing wallet with the given name.
 // Deprecated; use Open() instead.
-func OpenWallet(ctx context.Context, name string, credentials credentials.TransportCredentials, endpoints []*Endpoint) (e2wtypes.Wallet, error) {
+func OpenWallet(_ context.Context, name string, credentials credentials.TransportCredentials, endpoints []*Endpoint) (e2wtypes.Wallet, error) {
 	wallet := newWallet()
 	wallet.name = name
 	wallet.endpoints = make([]*Endpoint, len(endpoints))
@@ -122,20 +122,20 @@ func (w *wallet) Version() uint {
 
 // Lock locks the wallet.  A locked wallet cannot create new accounts.
 // Dirk manages wallet locking, so we short-circuit the request.
-func (w *wallet) Lock(ctx context.Context) error {
+func (w *wallet) Lock(_ context.Context) error {
 	// No-op
 	return nil
 }
 
 // Unlock unlocks the wallet.  An unlocked wallet can create new accounts.
 // Dirk manages wallet locking, so we short-circuit the request.
-func (w *wallet) Unlock(ctx context.Context, passphrase []byte) error {
+func (w *wallet) Unlock(_ context.Context, _ []byte) error {
 	return nil
 }
 
 // IsUnlocked reports if the wallet is unlocked.
 // Dirk manages wallet locking, so we state it as unlocked.
-func (w *wallet) IsUnlocked(ctx context.Context) (bool, error) {
+func (w *wallet) IsUnlocked(_ context.Context) (bool, error) {
 	return true, nil
 }
 
@@ -151,6 +151,7 @@ func (w *wallet) Accounts(ctx context.Context) <-chan e2wtypes.Account {
 		}
 		close(ch)
 	}()
+
 	return ch
 }
 
@@ -164,12 +165,13 @@ func (w *wallet) AccountByName(ctx context.Context, name string) (e2wtypes.Accou
 	if len(accounts) == 0 {
 		return nil, errors.New("not found")
 	}
+
 	return accounts[0], nil
 }
 
 // AccountByID provides a single account from the wallet given its ID.
 // This will error if the account is not found.
-func (w *wallet) AccountByID(ctx context.Context, id uuid.UUID) (e2wtypes.Account, error) {
+func (w *wallet) AccountByID(_ context.Context, _ uuid.UUID) (e2wtypes.Account, error) {
 	return nil, errors.New("not supported")
 }
 

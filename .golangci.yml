@@ -118,6 +118,10 @@ linters-settings:
         json: snake
         yaml: snake
 
+  nlreturn:
+    # Allow two-line blocks without requiring a newline
+    block-size: 3
+
 linters:
   # Enable all available linters.
   # Default: false
@@ -138,9 +142,7 @@ linters:
     - gochecknoinits
     - gocognit
     - goconst
-    - godot
     - goerr113
-    - gofumpt
     - goheader
     - golint
     - gomnd
@@ -148,19 +150,13 @@ linters:
     - interfacer
     - ireturn
     - lll
-    - maintidx
     - maligned
-    - nlreturn
-    - nolintlint
     - nosnakecase
     - rowserrcheck
     - scopelint
     - sqlclosecheck
     - structcheck
-    - unparam
     - varcheck
     - varnamelen
     - wastedassign
-    - whitespace
-    - wrapcheck
     - wsl

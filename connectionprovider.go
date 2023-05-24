@@ -19,6 +19,7 @@ import (
 	"sync"
 
 	"github.com/jackc/puddle"
+	"github.com/pkg/errors"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -49,8 +50,9 @@ func (c *PuddleConnectionProvider) Connection(ctx context.Context, endpoint *End
 
 	res, err := pool.Acquire(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, errors.Wrap(err, "failed to obtain connection")
 	}
+
 	return res.Value().(*grpc.ClientConn), res.Release, nil
 }
 
@@ -67,13 +69,13 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 				grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
 			}...)
 			if err != nil {
-				return nil, err
+				return nil, errors.Wrap(err, "failed to construct connection")
 			}
 			incConnections(address)
+
 			return conn, nil
 		}
 		destructor := func(val interface{}) {
-			//nolint:errcheck
 			val.(*grpc.ClientConn).Close()
 			decConnections(address)
 		}
@@ -82,5 +84,6 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 		connectionPools[address] = pool
 		connectionPoolsMu.Unlock()
 	}
+
 	return pool
 }

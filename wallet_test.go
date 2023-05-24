@@ -94,7 +94,6 @@ func TestComposeCredentials(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-
 			_, err := dirk.ComposeCredentials(ctx, test.clientPath, test.keyPath, test.caPath)
 			if test.err == "" {
 				require.NoError(t, err)

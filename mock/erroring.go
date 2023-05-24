@@ -21,38 +21,43 @@ import (
 )
 
 // ErroringService is a mock service that returns errors.
-type ErroringService struct {
-}
+type ErroringService struct{}
 
 // Sign returns an error.
-func (s *ErroringService) Sign(ctx context.Context, in *pb.SignRequest) (*pb.SignResponse, error) {
+func (s *ErroringService) Sign(_ context.Context, _ *pb.SignRequest) (*pb.SignResponse, error) {
 	return &pb.SignResponse{
 		State: pb.ResponseState_UNKNOWN,
 	}, errors.New("mock error")
 }
 
 // SignBeaconAttestation returns an error.
-func (s *ErroringService) SignBeaconAttestation(ctx context.Context, in *pb.SignBeaconAttestationRequest) (*pb.SignResponse, error) {
+func (s *ErroringService) SignBeaconAttestation(_ context.Context, _ *pb.SignBeaconAttestationRequest) (*pb.SignResponse, error) {
 	return &pb.SignResponse{
 		State: pb.ResponseState_UNKNOWN,
 	}, errors.New("mock error")
 }
 
 // SignBeaconAttestations returns an error.
-func (s *ErroringService) SignBeaconAttestations(ctx context.Context, in *pb.SignBeaconAttestationsRequest) (*pb.MultisignResponse, error) {
+func (s *ErroringService) SignBeaconAttestations(_ context.Context,
+	in *pb.SignBeaconAttestationsRequest,
+) (
+	*pb.MultisignResponse,
+	error,
+) {
 	responses := make([]*pb.SignResponse, len(in.Requests))
 	for i := range responses {
 		responses[i] = &pb.SignResponse{
 			State: pb.ResponseState_UNKNOWN,
 		}
 	}
+
 	return &pb.MultisignResponse{
 		Responses: responses,
 	}, errors.New("mock error")
 }
 
 // SignBeaconProposal returns an error.
-func (s *ErroringService) SignBeaconProposal(ctx context.Context, in *pb.SignBeaconProposalRequest) (*pb.SignResponse, error) {
+func (s *ErroringService) SignBeaconProposal(_ context.Context, _ *pb.SignBeaconProposalRequest) (*pb.SignResponse, error) {
 	return &pb.SignResponse{
 		State: pb.ResponseState_UNKNOWN,
 	}, errors.New("mock error")

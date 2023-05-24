@@ -34,7 +34,7 @@ type ErroringListerServer struct {
 }
 
 // ListAccounts returns an error.
-func (s *ErroringListerServer) ListAccounts(ctx context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
+func (s *ErroringListerServer) ListAccounts(_ context.Context, _ *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
 	return &pb.ListAccountsResponse{
 		State: pb.ResponseState_UNKNOWN,
 	}, errors.New("mock error")
@@ -46,7 +46,7 @@ type DenyingListerServer struct {
 }
 
 // ListAccounts returns an error.
-func (s *DenyingListerServer) ListAccounts(ctx context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
+func (s *DenyingListerServer) ListAccounts(_ context.Context, _ *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
 	return &pb.ListAccountsResponse{
 		State: pb.ResponseState_DENIED,
 	}, nil
@@ -58,7 +58,7 @@ type MockListerServer struct {
 }
 
 // ListAccounts returns static accounts.
-func (s *MockListerServer) ListAccounts(ctx context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
+func (s *MockListerServer) ListAccounts(_ context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
 	interopAccounts := map[string]*pb.Account{
 		"Interop 0": {
 			Name:      "Interop 0",
