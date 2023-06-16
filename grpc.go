@@ -32,6 +32,7 @@ import (
 	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
@@ -296,19 +297,25 @@ func (a *account) SignGRPC(ctx context.Context,
 		return nil, errors.Wrap(err, "failed to obtain signature")
 	}
 	if resp.State == pb.ResponseState_FAILED {
+		span.SetStatus(codes.Error, "Failed to request signature bytes")
 		return nil, errors.New("request to obtain signature failed")
 	}
 	if resp.State == pb.ResponseState_DENIED {
+		span.SetStatus(codes.Error, "Request signature bytes denied")
 		return nil, errors.New("request to obtain signature denied")
 	}
+	span.AddEvent("Obtained signature bytes")
 
 	sig, err := e2types.BLSSignatureFromBytes(resp.Signature)
 	if err != nil {
+		span.SetStatus(codes.Error, "Invalid signature bytes received")
 		return nil, errors.Wrap(err, "invalid signature received")
 	}
 	if sig == nil {
+		span.SetStatus(codes.Error, "No signature received")
 		return nil, fmt.Errorf("no signature received")
 	}
+	span.AddEvent("Generated signature from bytes")
 
 	return sig, nil
 }
