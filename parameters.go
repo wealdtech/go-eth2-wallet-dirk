@@ -31,7 +31,7 @@ type parameters struct {
 
 // Parameter is the interface for service parameters.
 type Parameter interface {
-	apply(*parameters)
+	apply(p *parameters)
 }
 
 type parameterFunc func(*parameters)
@@ -110,7 +110,7 @@ func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 	if len(parameters.endpoints) == 0 {
 		return nil, errors.New("no endpoints specified")
 	}
-	if parameters.poolConnections == 0 {
+	if parameters.poolConnections < 1 {
 		return nil, errors.New("no pool connections specified")
 	}
 

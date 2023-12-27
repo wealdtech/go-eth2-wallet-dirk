@@ -44,7 +44,7 @@ func (s *ErroringService) SignBeaconAttestations(_ context.Context,
 	*pb.MultisignResponse,
 	error,
 ) {
-	responses := make([]*pb.SignResponse, len(in.Requests))
+	responses := make([]*pb.SignResponse, len(in.GetRequests()))
 	for i := range responses {
 		responses[i] = &pb.SignResponse{
 			State: pb.ResponseState_UNKNOWN,

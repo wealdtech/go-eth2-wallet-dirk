@@ -131,62 +131,62 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to access dirk")
 	}
-	if resp.State != pb.ResponseState_SUCCEEDED {
-		return nil, fmt.Errorf("request to list wallet accounts returned state %v", resp.State)
+	if resp.GetState() != pb.ResponseState_SUCCEEDED {
+		return nil, fmt.Errorf("request to list wallet accounts returned state %v", resp.GetState())
 	}
 
 	walletPrefixLen := len(w.Name()) + 1
 	accounts := make([]e2wtypes.Account, 0)
-	for _, account := range resp.Accounts {
-		pubKey, err := e2types.BLSPublicKeyFromBytes(account.PublicKey)
+	for _, account := range resp.GetAccounts() {
+		pubKey, err := e2types.BLSPublicKeyFromBytes(account.GetPublicKey())
 		if err != nil {
 			return nil, errors.Wrap(err, "received invalid public key")
 		}
 
 		var uuid uuid.UUID
-		err = uuid.UnmarshalBinary(account.Uuid)
+		err = uuid.UnmarshalBinary(account.GetUuid())
 		if err != nil {
 			return nil, errors.Wrap(err, "received invalid uuid")
 		}
 		var name string
-		if strings.Contains(account.Name, "/") {
-			name = account.Name[walletPrefixLen:]
+		if strings.Contains(account.GetName(), "/") {
+			name = account.GetName()[walletPrefixLen:]
 		} else {
-			name = account.Name
+			name = account.GetName()
 		}
 		account := newAccount(w, uuid, name, pubKey, 1)
 		accounts = append(accounts, account)
 	}
-	for _, account := range resp.DistributedAccounts {
-		pubKey, err := e2types.BLSPublicKeyFromBytes(account.PublicKey)
+	for _, account := range resp.GetDistributedAccounts() {
+		pubKey, err := e2types.BLSPublicKeyFromBytes(account.GetPublicKey())
 		if err != nil {
 			return nil, errors.Wrap(err, "received invalid public key")
 		}
 
-		compositePubKey, err := e2types.BLSPublicKeyFromBytes(account.CompositePublicKey)
+		compositePubKey, err := e2types.BLSPublicKeyFromBytes(account.GetCompositePublicKey())
 		if err != nil {
 			return nil, errors.Wrap(err, "received invalid composite public key")
 		}
 
 		var uuid uuid.UUID
-		err = uuid.UnmarshalBinary(account.Uuid)
+		err = uuid.UnmarshalBinary(account.GetUuid())
 		if err != nil {
 			return nil, errors.Wrap(err, "received invalid uuid")
 		}
 		var name string
-		if strings.Contains(account.Name, "/") {
-			name = account.Name[walletPrefixLen:]
+		if strings.Contains(account.GetName(), "/") {
+			name = account.GetName()[walletPrefixLen:]
 		} else {
-			name = account.Name
+			name = account.GetName()
 		}
-		participants := make(map[uint64]*Endpoint, len(account.Participants))
-		for _, participant := range account.Participants {
-			participants[participant.Id] = &Endpoint{
-				host: participant.Name,
-				port: participant.Port,
+		participants := make(map[uint64]*Endpoint, len(account.GetParticipants()))
+		for _, participant := range account.GetParticipants() {
+			participants[participant.GetId()] = &Endpoint{
+				host: participant.GetName(),
+				port: participant.GetPort(),
 			}
 		}
-		account := newDistributedAccount(w, uuid, name, pubKey, compositePubKey, account.SigningThreshold, participants, 1)
+		account := newDistributedAccount(w, uuid, name, pubKey, compositePubKey, account.GetSigningThreshold(), participants, 1)
 		accounts = append(accounts, account)
 	}
 
@@ -218,11 +218,11 @@ func (w *wallet) UnlockAccount(ctx context.Context, accountName string, passphra
 	if err != nil {
 		return false, errors.Wrap(err, "failed to access dirk")
 	}
-	if resp.State == pb.ResponseState_FAILED {
+	if resp.GetState() == pb.ResponseState_FAILED {
 		return false, errors.New("request to unlock account failed")
 	}
 
-	return resp.State == pb.ResponseState_SUCCEEDED, nil
+	return resp.GetState() == pb.ResponseState_SUCCEEDED, nil
 }
 
 // Lock locks an account.
@@ -249,7 +249,7 @@ func (w *wallet) LockAccount(ctx context.Context, accountName string) error {
 	if err != nil {
 		return errors.Wrap(err, "failed to access dirk")
 	}
-	if resp.State == pb.ResponseState_FAILED {
+	if resp.GetState() == pb.ResponseState_FAILED {
 		return errors.New("request to lock account failed")
 	}
 
@@ -296,17 +296,17 @@ func (a *account) SignGRPC(ctx context.Context,
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
 	}
-	if resp.State == pb.ResponseState_FAILED {
+	if resp.GetState() == pb.ResponseState_FAILED {
 		span.SetStatus(codes.Error, "Failed to request signature bytes")
 		return nil, errors.New("request to obtain signature failed")
 	}
-	if resp.State == pb.ResponseState_DENIED {
+	if resp.GetState() == pb.ResponseState_DENIED {
 		span.SetStatus(codes.Error, "Request signature bytes denied")
 		return nil, errors.New("request to obtain signature denied")
 	}
 	span.AddEvent("Obtained signature bytes")
 
-	sig, err := e2types.BLSSignatureFromBytes(resp.Signature)
+	sig, err := e2types.BLSSignatureFromBytes(resp.GetSignature())
 	if err != nil {
 		span.SetStatus(codes.Error, "Invalid signature bytes received")
 		return nil, errors.Wrap(err, "invalid signature received")
@@ -402,14 +402,14 @@ func (a *account) SignBeaconProposalGRPC(ctx context.Context,
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
 	}
-	if resp.State == pb.ResponseState_FAILED {
+	if resp.GetState() == pb.ResponseState_FAILED {
 		return nil, errors.New("request to obtain signature failed")
 	}
-	if resp.State == pb.ResponseState_DENIED {
+	if resp.GetState() == pb.ResponseState_DENIED {
 		return nil, errors.New("request to obtain signature denied")
 	}
 
-	sig, err := e2types.BLSSignatureFromBytes(resp.Signature)
+	sig, err := e2types.BLSSignatureFromBytes(resp.GetSignature())
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %v", endpoint))
 	}
@@ -517,14 +517,14 @@ func (a *account) SignBeaconAttestationGRPC(ctx context.Context,
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
 	}
-	if resp.State == pb.ResponseState_FAILED {
+	if resp.GetState() == pb.ResponseState_FAILED {
 		return nil, errors.New("request to obtain signature failed")
 	}
-	if resp.State == pb.ResponseState_DENIED {
+	if resp.GetState() == pb.ResponseState_DENIED {
 		return nil, errors.New("request to obtain signature denied")
 	}
 
-	sig, err := e2types.BLSSignatureFromBytes(resp.Signature)
+	sig, err := e2types.BLSSignatureFromBytes(resp.GetSignature())
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %v", endpoint))
 	}
@@ -652,14 +652,14 @@ func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
 	}
 
 	sigs := make([]e2types.Signature, len(accounts))
-	for i := range resp.Responses {
-		if resp.Responses[i].State == pb.ResponseState_FAILED {
+	for i, response := range resp.GetResponses() {
+		if response.GetState() == pb.ResponseState_FAILED {
 			return nil, errors.New("request to obtain signatures failed")
 		}
-		if resp.Responses[i].State == pb.ResponseState_DENIED {
+		if response.GetState() == pb.ResponseState_DENIED {
 			return nil, errors.New("request to obtain signatures denied")
 		}
-		sigs[i], err = e2types.BLSSignatureFromBytes(resp.Responses[i].Signature)
+		sigs[i], err = e2types.BLSSignatureFromBytes(response.GetSignature())
 		if err != nil {
 			return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %v", endpoint))
 		}
@@ -765,14 +765,14 @@ func (w *wallet) GenerateDistributedAccount(ctx context.Context,
 		return nil, errors.Wrap(err, "failed to access dirk")
 	}
 
-	if resp.State != pb.ResponseState_SUCCEEDED {
-		switch resp.State {
+	if resp.GetState() != pb.ResponseState_SUCCEEDED {
+		switch resp.GetState() {
 		case pb.ResponseState_DENIED:
-			return nil, fmt.Errorf("generate request denied: %s", resp.Message)
+			return nil, fmt.Errorf("generate request denied: %s", resp.GetMessage())
 		case pb.ResponseState_FAILED:
-			return nil, fmt.Errorf("generate request failed: %s", resp.Message)
+			return nil, fmt.Errorf("generate request failed: %s", resp.GetMessage())
 		default:
-			return nil, fmt.Errorf("generate request failed: %s", resp.Message)
+			return nil, fmt.Errorf("generate request failed: %s", resp.GetMessage())
 		}
 	}
 
@@ -846,14 +846,14 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		case <-errChannel:
 			errored++
 		case resp := <-respChannel:
-			switch resp.resp.State {
+			switch resp.resp.GetState() {
 			case pb.ResponseState_DENIED:
 				denied++
 			case pb.ResponseState_FAILED:
 				failed++
 			case pb.ResponseState_SUCCEEDED:
 				ids[signed] = *blsID(resp.id)
-				if err := signatures[signed].Deserialize(resp.resp.Signature); err != nil {
+				if err := signatures[signed].Deserialize(resp.resp.GetSignature()); err != nil {
 					return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %d", resp.id))
 				}
 				signed++
@@ -938,14 +938,14 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 		case <-errChannel:
 			errored++
 		case resp := <-respChannel:
-			switch resp.resp.State {
+			switch resp.resp.GetState() {
 			case pb.ResponseState_DENIED:
 				denied++
 			case pb.ResponseState_FAILED:
 				failed++
 			case pb.ResponseState_SUCCEEDED:
 				ids[signed] = *blsID(resp.id)
-				if err := signatures[signed].Deserialize(resp.resp.Signature); err != nil {
+				if err := signatures[signed].Deserialize(resp.resp.GetSignature()); err != nil {
 					return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %d", resp.id))
 				}
 				signed++
@@ -1038,8 +1038,8 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 			responses++
 		case resp := <-respChannel:
 			responses++
-			for i := range resp.resp.Responses {
-				switch resp.resp.Responses[i].State {
+			for i, response := range resp.resp.GetResponses() {
+				switch response.GetState() {
 				case pb.ResponseState_DENIED:
 					denied[i]++
 				case pb.ResponseState_FAILED:
@@ -1047,7 +1047,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 				case pb.ResponseState_SUCCEEDED:
 					signed[i]++
 					ids[i] = append(ids[i], *blsID(resp.id))
-					signatureBytes[i] = append(signatureBytes[i], resp.resp.Responses[i].Signature)
+					signatureBytes[i] = append(signatureBytes[i], response.GetSignature())
 				}
 			}
 		}
@@ -1169,14 +1169,14 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		case <-errChannel:
 			errored++
 		case resp := <-respChannel:
-			switch resp.resp.State {
+			switch resp.resp.GetState() {
 			case pb.ResponseState_DENIED:
 				denied++
 			case pb.ResponseState_FAILED:
 				failed++
 			case pb.ResponseState_SUCCEEDED:
 				ids[signed] = *blsID(resp.id)
-				if err := signatures[signed].Deserialize(resp.resp.Signature); err != nil {
+				if err := signatures[signed].Deserialize(resp.resp.GetSignature()); err != nil {
 					return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %d", resp.id))
 				}
 				signed++

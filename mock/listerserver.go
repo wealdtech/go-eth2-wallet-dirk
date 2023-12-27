@@ -193,16 +193,16 @@ func (s *MockListerServer) ListAccounts(_ context.Context, in *pb.ListAccountsRe
 
 	accounts := make([]*pb.Account, 0)
 	for _, account := range interopAccounts {
-		if len(in.Paths) == 0 {
+		if len(in.GetPaths()) == 0 {
 			accounts = append(accounts, account)
 		} else {
-			for i := range in.Paths {
-				if !strings.Contains(in.Paths[i], "/") {
+			for _, path := range in.GetPaths() {
+				if !strings.Contains(path, "/") {
 					// Wallet only.
 					accounts = append(accounts, account)
 					break
 				}
-				if strings.HasSuffix(in.Paths[i], fmt.Sprintf("/%s", account.Name)) {
+				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
 					accounts = append(accounts, account)
 					break
 				}
@@ -212,16 +212,16 @@ func (s *MockListerServer) ListAccounts(_ context.Context, in *pb.ListAccountsRe
 
 	distributedAccounts := make([]*pb.DistributedAccount, 0)
 	for _, account := range allDistributedAccounts {
-		if len(in.Paths) == 0 {
+		if len(in.GetPaths()) == 0 {
 			distributedAccounts = append(distributedAccounts, account)
 		} else {
-			for i := range in.Paths {
-				if !strings.Contains(in.Paths[i], "/") {
+			for _, path := range in.GetPaths() {
+				if !strings.Contains(path, "/") {
 					// Wallet only.
 					distributedAccounts = append(distributedAccounts, account)
 					break
 				}
-				if strings.HasSuffix(in.Paths[i], fmt.Sprintf("/%s", account.Name)) {
+				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
 					distributedAccounts = append(distributedAccounts, account)
 					break
 				}

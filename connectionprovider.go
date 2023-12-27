@@ -1,4 +1,4 @@
-// Copyright © 2020, 2022 Weald Technology Trading.
+// Copyright © 2020 - 2023 Weald Technology Trading.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -18,7 +18,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/jackc/puddle"
+	"github.com/jackc/puddle/v2"
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -27,7 +27,7 @@ import (
 
 var (
 	// connectionPools is a per-address connection pool, to avoid excess connections.
-	connectionPools   = make(map[string]*puddle.Pool)
+	connectionPools   = make(map[string]*puddle.Pool[*grpc.ClientConn])
 	connectionPoolsMu = sync.Mutex{}
 )
 
@@ -53,20 +53,20 @@ func (c *PuddleConnectionProvider) Connection(ctx context.Context, endpoint *End
 		return nil, nil, errors.Wrap(err, "failed to obtain connection")
 	}
 
-	return res.Value().(*grpc.ClientConn), res.Release, nil
+	return res.Value(), res.Release, nil
 }
 
-func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Pool {
+func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Pool[*grpc.ClientConn] {
 	connectionPoolsMu.Lock()
 	pool, exists := connectionPools[address]
 	connectionPoolsMu.Unlock()
 	if !exists {
-		constructor := func(ctx context.Context) (interface{}, error) {
+		constructor := func(ctx context.Context) (*grpc.ClientConn, error) {
 			conn, err := grpc.DialContext(ctx, address, []grpc.DialOption{
 				grpc.WithTransportCredentials(c.credentials),
 				// Maximum receive value 64 MB.
 				grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64 * 1024 * 1024)),
-				grpc.WithUnaryInterceptor(otelgrpc.UnaryClientInterceptor()),
+				grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 			}...)
 			if err != nil {
 				return nil, errors.Wrap(err, "failed to construct connection")
@@ -75,11 +75,17 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 
 			return conn, nil
 		}
-		destructor := func(val interface{}) {
-			val.(*grpc.ClientConn).Close()
+		destructor := func(val *grpc.ClientConn) {
+			val.Close()
 			decConnections(address)
 		}
-		pool = puddle.NewPool(constructor, destructor, c.poolConnections)
+		// Ignoring error, can only happen if MaxSize < 1 and we check for this
+		// already in parseAndCheckParameters.
+		pool, _ = puddle.NewPool(&puddle.Config[*grpc.ClientConn]{
+			Constructor: constructor,
+			Destructor:  destructor,
+			MaxSize:     c.poolConnections,
+		})
 		connectionPoolsMu.Lock()
 		connectionPools[address] = pool
 		connectionPoolsMu.Unlock()
