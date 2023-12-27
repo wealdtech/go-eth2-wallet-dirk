@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/encoding/gzip"
 )
 
 var (
@@ -64,8 +65,12 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 		constructor := func(ctx context.Context) (*grpc.ClientConn, error) {
 			conn, err := grpc.DialContext(ctx, address, []grpc.DialOption{
 				grpc.WithTransportCredentials(c.credentials),
-				// Maximum receive value 64 MB.
-				grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(64 * 1024 * 1024)),
+				grpc.WithDefaultCallOptions(
+					// Maximum message receive size is 128 MB.
+					grpc.MaxCallRecvMsgSize(128*1024*1024),
+					// Use compression if available.
+					grpc.UseCompressor(gzip.Name),
+				),
 				grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 			}...)
 			if err != nil {

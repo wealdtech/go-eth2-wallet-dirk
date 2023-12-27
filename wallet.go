@@ -88,7 +88,8 @@ func OpenWallet(_ context.Context, name string, credentials credentials.Transpor
 	wallet.name = name
 	wallet.endpoints = make([]*Endpoint, len(endpoints))
 	wallet.connectionProvider = &PuddleConnectionProvider{
-		credentials: credentials.Clone(),
+		poolConnections: 32,
+		credentials:     credentials.Clone(),
 	}
 	for i := range endpoints {
 		wallet.endpoints[i] = &Endpoint{
