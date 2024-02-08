@@ -15,6 +15,7 @@ package dirk
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,7 +68,7 @@ func Open(ctx context.Context,
 	wallet.timeout = parameters.timeout
 	wallet.endpoints = make([]*Endpoint, len(parameters.endpoints))
 	wallet.connectionProvider = &PuddleConnectionProvider{
-		name:            parameters.name,
+		name:            fmt.Sprintf("%s-%s", parameters.name, uuid.NewString()[:6]),
 		poolConnections: parameters.poolConnections,
 		credentials:     parameters.credentials.Clone(),
 	}
@@ -184,6 +185,11 @@ func (w *wallet) CreateAccount(ctx context.Context, name string, passphrase []by
 // CreateDistributedAccount creates a distributed account.
 func (w *wallet) CreateDistributedAccount(ctx context.Context, name string, participants uint32, signingThreshold uint32, passphrase []byte) (e2wtypes.Account, error) {
 	return w.GenerateDistributedAccount(ctx, name, participants, signingThreshold, passphrase)
+}
+
+// CloseConnections closes connections for wallet.
+func (w *wallet) CloseConnections() {
+	w.connectionProvider.CloseConnections(w.endpoints)
 }
 
 // SetConnectionProvider sets a connection provider for the wallet.

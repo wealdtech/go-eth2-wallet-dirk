@@ -35,6 +35,7 @@ var (
 type ConnectionProvider interface {
 	// Connection returns a connection and release function.
 	Connection(ctx context.Context, endpoint *Endpoint) (*grpc.ClientConn, func(), error)
+	CloseConnections(endpoints []*Endpoint)
 }
 
 // PuddleConnectionProvider provides connections using the Puddle connection pooler.
@@ -44,9 +45,26 @@ type PuddleConnectionProvider struct {
 	credentials     credentials.TransportCredentials
 }
 
+func (c *PuddleConnectionProvider) getConnectionKey(endpoint *Endpoint) string {
+	return fmt.Sprintf("%s:%s", endpoint.String(), c.name)
+}
+
+// CloseConnections closes connections to the given endpoints and specific connection provider.
+func (c *PuddleConnectionProvider) CloseConnections(endpoints []*Endpoint) {
+	connectionPoolsMu.Lock()
+	defer connectionPoolsMu.Unlock()
+	for i := range endpoints {
+		key := c.getConnectionKey(endpoints[i])
+		if pool, exists := connectionPools[key]; exists {
+			pool.Close()
+			delete(connectionPools, key)
+		}
+	}
+}
+
 // Connection returns a connection and release function.
 func (c *PuddleConnectionProvider) Connection(ctx context.Context, endpoint *Endpoint) (*grpc.ClientConn, func(), error) {
-	pool := c.obtainOrCreatePool(fmt.Sprintf("%s:%d", endpoint.host, endpoint.port))
+	pool := c.obtainOrCreatePool(endpoint.String(), c.getConnectionKey(endpoint))
 
 	res, err := pool.Acquire(ctx)
 	if err != nil {
@@ -56,9 +74,9 @@ func (c *PuddleConnectionProvider) Connection(ctx context.Context, endpoint *End
 	return res.Value(), res.Release, nil
 }
 
-func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Pool[*grpc.ClientConn] {
+func (c *PuddleConnectionProvider) obtainOrCreatePool(address, connectionKey string) *puddle.Pool[*grpc.ClientConn] {
 	connectionPoolsMu.Lock()
-	pool, exists := connectionPools[address]
+	pool, exists := connectionPools[connectionKey]
 	connectionPoolsMu.Unlock()
 	if !exists {
 		constructor := func(ctx context.Context) (*grpc.ClientConn, error) {
@@ -93,7 +111,7 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 			MaxSize:     c.poolConnections,
 		})
 		connectionPoolsMu.Lock()
-		connectionPools[address] = pool
+		connectionPools[connectionKey] = pool
 		connectionPoolsMu.Unlock()
 	}
 
