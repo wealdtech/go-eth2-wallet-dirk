@@ -15,7 +15,8 @@ package dirk
 
 import (
 	"context"
-	"fmt"
+	"github.com/jackc/puddle/v2"
+	"google.golang.org/grpc"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,9 +69,10 @@ func Open(ctx context.Context,
 	wallet.timeout = parameters.timeout
 	wallet.endpoints = make([]*Endpoint, len(parameters.endpoints))
 	wallet.connectionProvider = &PuddleConnectionProvider{
-		name:            fmt.Sprintf("%s-%s", parameters.name, uuid.NewString()[:6]),
+		name:            parameters.name,
 		poolConnections: parameters.poolConnections,
 		credentials:     parameters.credentials.Clone(),
+		connectionPools: make(map[string]*puddle.Pool[*grpc.ClientConn]),
 	}
 	for i := range parameters.endpoints {
 		wallet.endpoints[i] = &Endpoint{
@@ -91,6 +93,7 @@ func OpenWallet(_ context.Context, name string, credentials credentials.Transpor
 	wallet.connectionProvider = &PuddleConnectionProvider{
 		poolConnections: 32,
 		credentials:     credentials.Clone(),
+		connectionPools: make(map[string]*puddle.Pool[*grpc.ClientConn]),
 	}
 	for i := range endpoints {
 		wallet.endpoints[i] = &Endpoint{
