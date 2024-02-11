@@ -25,11 +25,17 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+var (
+	// connectionPools is a per-address connection pool, to avoid excess connections.
+	connectionPools   = make(map[string]*puddle.Pool[*grpc.ClientConn])
+	connectionPoolsMu = sync.Mutex{}
+)
+
 // ConnectionProvider is an interface that provides GRPC connections.
 type ConnectionProvider interface {
 	// Connection returns a connection and release function.
 	Connection(ctx context.Context, endpoint *Endpoint) (*grpc.ClientConn, func(), error)
-	CloseConnections(endpoints []*Endpoint)
+	Close(endpoints []*Endpoint)
 }
 
 // PuddleConnectionProvider provides connections using the Puddle connection pooler.
@@ -37,27 +43,32 @@ type PuddleConnectionProvider struct {
 	name            string
 	poolConnections int32
 	credentials     credentials.TransportCredentials
-	// connectionPools is a per-address connection pool, to avoid excess connections.
-	connectionPools   map[string]*puddle.Pool[*grpc.ClientConn]
-	connectionPoolsMu sync.Mutex
 }
 
-// CloseConnections closes connections to the given endpoints and specific connection provider.
-func (c *PuddleConnectionProvider) CloseConnections(endpoints []*Endpoint) {
-	c.connectionPoolsMu.Lock()
-	defer c.connectionPoolsMu.Unlock()
+// Close closes connections to the given endpoints and specific connection provider.
+func (c *PuddleConnectionProvider) Close(endpoints []*Endpoint) {
+	connectionPoolsMu.Lock()
+	defer connectionPoolsMu.Unlock()
 	for i := range endpoints {
-		key := endpoints[i].String()
-		if pool, exists := c.connectionPools[key]; exists {
+		key := c.getConnectionKey(endpoints[i])
+		if pool, exists := connectionPools[key]; exists {
 			pool.Close()
-			delete(c.connectionPools, key)
+			delete(connectionPools, key)
 		}
 	}
 }
 
+func (c *PuddleConnectionProvider) getConnectionKey(endpoint *Endpoint) string {
+	key := fmt.Sprintf("%s:%d", endpoint.host, endpoint.port)
+	if c.name != "" {
+		key += fmt.Sprintf("-%s", c.name)
+	}
+	return key
+}
+
 // Connection returns a connection and release function.
 func (c *PuddleConnectionProvider) Connection(ctx context.Context, endpoint *Endpoint) (*grpc.ClientConn, func(), error) {
-	pool := c.obtainOrCreatePool(fmt.Sprintf("%s:%d", endpoint.host, endpoint.port))
+	pool := c.obtainOrCreatePool(c.getConnectionKey(endpoint), fmt.Sprintf("%s:%d", endpoint.host, endpoint.port))
 
 	res, err := pool.Acquire(ctx)
 	if err != nil {
@@ -67,10 +78,10 @@ func (c *PuddleConnectionProvider) Connection(ctx context.Context, endpoint *End
 	return res.Value(), res.Release, nil
 }
 
-func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Pool[*grpc.ClientConn] {
-	c.connectionPoolsMu.Lock()
-	pool, exists := c.connectionPools[address]
-	c.connectionPoolsMu.Unlock()
+func (c *PuddleConnectionProvider) obtainOrCreatePool(connectionKey, address string) *puddle.Pool[*grpc.ClientConn] {
+	connectionPoolsMu.Lock()
+	pool, exists := connectionPools[connectionKey]
+	connectionPoolsMu.Unlock()
 	if !exists {
 		constructor := func(ctx context.Context) (*grpc.ClientConn, error) {
 			conn, err := grpc.DialContext(ctx, address, []grpc.DialOption{
@@ -103,9 +114,9 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 			Destructor:  destructor,
 			MaxSize:     c.poolConnections,
 		})
-		c.connectionPoolsMu.Lock()
-		c.connectionPools[address] = pool
-		c.connectionPoolsMu.Unlock()
+		connectionPoolsMu.Lock()
+		connectionPools[connectionKey] = pool
+		connectionPoolsMu.Unlock()
 	}
 
 	return pool
