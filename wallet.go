@@ -67,7 +67,7 @@ func Open(ctx context.Context,
 	wallet.timeout = parameters.timeout
 	wallet.endpoints = make([]*Endpoint, len(parameters.endpoints))
 	wallet.connectionProvider = &PuddleConnectionProvider{
-		name:            parameters.name,
+		name:            parameters.connectionName,
 		poolConnections: parameters.poolConnections,
 		credentials:     parameters.credentials.Clone(),
 	}
@@ -184,6 +184,11 @@ func (w *wallet) CreateAccount(ctx context.Context, name string, passphrase []by
 // CreateDistributedAccount creates a distributed account.
 func (w *wallet) CreateDistributedAccount(ctx context.Context, name string, participants uint32, signingThreshold uint32, passphrase []byte) (e2wtypes.Account, error) {
 	return w.GenerateDistributedAccount(ctx, name, participants, signingThreshold, passphrase)
+}
+
+// Close closes connections for wallet.
+func (w *wallet) Close() {
+	w.connectionProvider.Close(w.endpoints)
 }
 
 // SetConnectionProvider sets a connection provider for the wallet.
