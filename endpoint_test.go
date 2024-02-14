@@ -16,8 +16,8 @@ package dirk_test
 import (
 	"testing"
 
+	dirk "github.com/p2p-org/go-eth2-wallet-dirk"
 	"github.com/stretchr/testify/require"
-	dirk "github.com/wealdtech/go-eth2-wallet-dirk"
 )
 
 func TestEndpoint(t *testing.T) {

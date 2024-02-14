@@ -21,11 +21,11 @@ import (
 	"sync"
 	"testing"
 
+	mock "github.com/p2p-org/go-eth2-wallet-dirk/mock"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 	e2types "github.com/wealdtech/go-eth2-types/v2"
-	mock "github.com/wealdtech/go-eth2-wallet-dirk/mock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"

@@ -18,11 +18,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	mock "github.com/p2p-org/go-eth2-wallet-dirk/mock"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 	e2types "github.com/wealdtech/go-eth2-types/v2"
-	mock "github.com/wealdtech/go-eth2-wallet-dirk/mock"
 	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
 	"google.golang.org/grpc/credentials"
 )

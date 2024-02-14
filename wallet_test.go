@@ -20,9 +20,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	dirk "github.com/p2p-org/go-eth2-wallet-dirk"
 	"github.com/stretchr/testify/require"
 	e2types "github.com/wealdtech/go-eth2-types/v2"
-	dirk "github.com/wealdtech/go-eth2-wallet-dirk"
 )
 
 func TestComposeCredentials(t *testing.T) {
