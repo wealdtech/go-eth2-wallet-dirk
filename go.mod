@@ -1,4 +1,4 @@
-module github.com/wealdtech/go-eth2-wallet-dirk
+module github.com/p2p-org/go-eth2-wallet-dirk
 
 go 1.20
 
