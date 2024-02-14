@@ -24,6 +24,7 @@ type parameters struct {
 	monitor         Metrics
 	timeout         time.Duration
 	name            string
+	connectionName  string
 	credentials     credentials.TransportCredentials
 	endpoints       []*Endpoint
 	poolConnections int32
@@ -44,6 +45,14 @@ func (f parameterFunc) apply(p *parameters) {
 func WithMonitor(monitor Metrics) Parameter {
 	return parameterFunc(func(p *parameters) {
 		p.monitor = monitor
+	})
+}
+
+// WithConnectionProviderName sets the name for the connection provider.
+// This is used to distinguish between different connection providers.
+func WithConnectionProviderName(name string) Parameter {
+	return parameterFunc(func(p *parameters) {
+		p.connectionName = name
 	})
 }
 

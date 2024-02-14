@@ -37,6 +37,8 @@ type ErroringConnectionProvider struct {
 	pb.UnimplementedListerServer
 }
 
+func (c *ErroringConnectionProvider) Close(_ []*Endpoint) {}
+
 // Connection returns a connection and release function.
 func (c *ErroringConnectionProvider) Connection(ctx context.Context, endpoint *Endpoint) (*grpc.ClientConn, func(), error) {
 	return nil, nil, errors.New("mock error")
@@ -70,6 +72,21 @@ func NewBufConnectionProvider(ctx context.Context,
 
 func (c *BufConnectionProvider) bufDialer(ctx context.Context, in string) (net.Conn, error) {
 	return c.listeners[in].Dial()
+}
+
+func (c *BufConnectionProvider) Close(endpoints []*Endpoint) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	for i := range endpoints {
+		if server, exists := c.servers[endpoints[i].String()]; exists {
+			server.Stop()
+			delete(c.servers, endpoints[i].String())
+		}
+		if listener, exists := c.listeners[endpoints[i].String()]; exists {
+			listener.Close()
+			delete(c.listeners, endpoints[i].String())
+		}
+	}
 }
 
 // Connection returns a connection and release function.
