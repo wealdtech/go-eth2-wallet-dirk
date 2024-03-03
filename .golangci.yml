@@ -153,6 +153,7 @@ linters:
     - lll
     - maligned
     - nosnakecase
+    - perfsprint
     - rowserrcheck
     - scopelint
     - sqlclosecheck
