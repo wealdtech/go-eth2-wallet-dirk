@@ -28,7 +28,7 @@ import (
 var (
 	// connectionPools is a per-address connection pool, to avoid excess connections.
 	connectionPools   = make(map[string]*puddle.Pool[*grpc.ClientConn])
-	connectionPoolsMu = sync.Mutex{}
+	connectionPoolsMu = sync.RWMutex{}
 )
 
 // ConnectionProvider is an interface that provides GRPC connections.
@@ -57,9 +57,9 @@ func (c *PuddleConnectionProvider) Connection(ctx context.Context, endpoint *End
 }
 
 func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Pool[*grpc.ClientConn] {
-	connectionPoolsMu.Lock()
+	connectionPoolsMu.RLock()
 	pool, exists := connectionPools[address]
-	connectionPoolsMu.Unlock()
+	connectionPoolsMu.RUnlock()
 	if !exists {
 		constructor := func(ctx context.Context) (*grpc.ClientConn, error) {
 			conn, err := grpc.DialContext(ctx, address, []grpc.DialOption{
