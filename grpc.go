@@ -597,8 +597,12 @@ func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
 		Requests: make([]*pb.SignBeaconAttestationRequest, len(accounts)),
 	}
 	for i := range accounts {
+		account, isAccount := accounts[i].(*account)
+		if !isAccount {
+			return nil, errors.New("account not of required type")
+		}
 		req.Requests[i] = &pb.SignBeaconAttestationRequest{
-			Id: &pb.SignBeaconAttestationRequest_Account{Account: fmt.Sprintf("%s/%s", accounts[i].(*account).wallet.Name(), accounts[i].Name())},
+			Id: &pb.SignBeaconAttestationRequest_Account{Account: fmt.Sprintf("%s/%s", account.wallet.Name(), accounts[i].Name())},
 			Data: &pb.AttestationData{
 				Slot:            slot,
 				CommitteeIndex:  committeeIndices[i],
@@ -684,9 +688,13 @@ func (a *distributedAccount) SignBeaconAttestationsGRPC(ctx context.Context,
 		Requests: make([]*pb.SignBeaconAttestationRequest, len(accounts)),
 	}
 	for i := range accounts {
-		thresholds[i] = accounts[i].(*distributedAccount).signingThreshold
+		account, isAccount := accounts[i].(*distributedAccount)
+		if !isAccount {
+			return nil, errors.New("account not of required type")
+		}
+		thresholds[i] = account.signingThreshold
 		req.Requests[i] = &pb.SignBeaconAttestationRequest{
-			Id: &pb.SignBeaconAttestationRequest_Account{Account: fmt.Sprintf("%s/%s", accounts[i].(*distributedAccount).wallet.Name(), accounts[i].Name())},
+			Id: &pb.SignBeaconAttestationRequest_Account{Account: fmt.Sprintf("%s/%s", account.wallet.Name(), accounts[i].Name())},
 			Data: &pb.AttestationData{
 				Slot:            slot,
 				CommitteeIndex:  committeeIndices[i],
@@ -748,15 +756,17 @@ func (w *wallet) GenerateDistributedAccount(ctx context.Context,
 		return nil, errors.Wrap(err, "failed to access dirk")
 	}
 
-	if resp.GetState() != pb.ResponseState_SUCCEEDED {
-		switch resp.GetState() {
-		case pb.ResponseState_DENIED:
-			return nil, fmt.Errorf("generate request denied: %s", resp.GetMessage())
-		case pb.ResponseState_FAILED:
-			return nil, fmt.Errorf("generate request failed: %s", resp.GetMessage())
-		default:
-			return nil, fmt.Errorf("generate request failed: %s", resp.GetMessage())
-		}
+	switch resp.GetState() {
+	case pb.ResponseState_SUCCEEDED:
+		// Good.
+	case pb.ResponseState_DENIED:
+		return nil, fmt.Errorf("generate request denied: %s", resp.GetMessage())
+	case pb.ResponseState_FAILED:
+		return nil, fmt.Errorf("generate request failed: %s", resp.GetMessage())
+	case pb.ResponseState_UNKNOWN:
+		return nil, fmt.Errorf("generate request unexpected response: %s", resp.GetMessage())
+	default:
+		return nil, fmt.Errorf("generate request failed: %s", resp.GetMessage())
 	}
 
 	// Fetch the account to ensure it has been created.
@@ -838,6 +848,9 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 			case pb.ResponseState_DENIED:
 				denied++
 			case pb.ResponseState_FAILED:
+				failed++
+			case pb.ResponseState_UNKNOWN:
+				// We consider unknown to be failed.
 				failed++
 			case pb.ResponseState_SUCCEEDED:
 				ids[signed] = *blsID(resp.id)
@@ -930,6 +943,9 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 			case pb.ResponseState_DENIED:
 				denied++
 			case pb.ResponseState_FAILED:
+				failed++
+			case pb.ResponseState_UNKNOWN:
+				// We consider unknown to be failed.
 				failed++
 			case pb.ResponseState_SUCCEEDED:
 				ids[signed] = *blsID(resp.id)
@@ -1031,6 +1047,9 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 				case pb.ResponseState_DENIED:
 					denied[i]++
 				case pb.ResponseState_FAILED:
+					failed[i]++
+				case pb.ResponseState_UNKNOWN:
+					// We consider unknown to be failed.
 					failed[i]++
 				case pb.ResponseState_SUCCEEDED:
 					signed[i]++
@@ -1161,6 +1180,9 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 			case pb.ResponseState_DENIED:
 				denied++
 			case pb.ResponseState_FAILED:
+				failed++
+			case pb.ResponseState_UNKNOWN:
+				// We consider unknown to be failed.
 				failed++
 			case pb.ResponseState_SUCCEEDED:
 				ids[signed] = *blsID(resp.id)
