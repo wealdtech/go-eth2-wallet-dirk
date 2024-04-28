@@ -161,7 +161,9 @@ func (w *wallet) Accounts(ctx context.Context) <-chan e2wtypes.Account {
 	ch := make(chan e2wtypes.Account, 1024)
 	go func() {
 		accounts, err := w.List(ctx, "")
-		if err == nil {
+		if err != nil {
+			w.log.Error().Err(err).Msg("Failed to obtain accounts")
+		} else {
 			for _, account := range accounts {
 				ch <- account
 			}

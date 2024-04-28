@@ -111,7 +111,7 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 		var release func()
 		conn, release, err = w.connectionProvider.Connection(ctx, w.endpoints[i])
 		if err != nil {
-			// Failed to obtain the connection.
+			w.log.Debug().Stringer("endpoint", w.endpoints[i]).Str("path", path).Err(err).Msg("Failed to obtain connection")
 			continue
 		}
 
@@ -127,6 +127,7 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 			// Success.
 			break
 		}
+		w.log.Debug().Stringer("endpoint", w.endpoints[i]).Str("path", path).Err(err).Msg("Failed to list accounts")
 	}
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to access dirk")
