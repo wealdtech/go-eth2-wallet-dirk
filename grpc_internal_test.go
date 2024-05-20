@@ -40,12 +40,12 @@ type ErroringConnectionProvider struct {
 func (c *ErroringConnectionProvider) Close(_ []*Endpoint) {}
 
 // Connection returns a connection and release function.
-func (c *ErroringConnectionProvider) Connection(ctx context.Context, endpoint *Endpoint) (*grpc.ClientConn, func(), error) {
+func (c *ErroringConnectionProvider) Connection(_ context.Context, _ *Endpoint) (*grpc.ClientConn, func(), error) {
 	return nil, nil, errors.New("mock error")
 }
 
 // ListAccounts returns an error.
-func (c *ErroringConnectionProvider) ListAccounts(ctx context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
+func (c *ErroringConnectionProvider) ListAccounts(_ context.Context, _ *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
 	return nil, errors.New("mock error")
 }
 
@@ -60,7 +60,7 @@ type BufConnectionProvider struct {
 const bufSize = 1024 * 1024
 
 // NewBufConnectionProvider creates a new buffer connection provider.
-func NewBufConnectionProvider(ctx context.Context,
+func NewBufConnectionProvider(_ context.Context,
 	listerServers []pb.ListerServer,
 ) (*BufConnectionProvider, error) {
 	return &BufConnectionProvider{
@@ -70,7 +70,7 @@ func NewBufConnectionProvider(ctx context.Context,
 	}, nil
 }
 
-func (c *BufConnectionProvider) bufDialer(ctx context.Context, in string) (net.Conn, error) {
+func (c *BufConnectionProvider) bufDialer(_ context.Context, in string) (net.Conn, error) {
 	return c.listeners[in].Dial()
 }
 

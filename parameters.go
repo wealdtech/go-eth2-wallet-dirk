@@ -17,10 +17,12 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
 	"google.golang.org/grpc/credentials"
 )
 
 type parameters struct {
+	logLevel        zerolog.Level
 	monitor         Metrics
 	timeout         time.Duration
 	name            string
@@ -39,6 +41,13 @@ type parameterFunc func(*parameters)
 
 func (f parameterFunc) apply(p *parameters) {
 	f(p)
+}
+
+// WithLogLevel sets the log level for the module.
+func WithLogLevel(logLevel zerolog.Level) Parameter {
+	return parameterFunc(func(p *parameters) {
+		p.logLevel = logLevel
+	})
 }
 
 // WithMonitor sets the monitor for the wallet.
@@ -94,6 +103,7 @@ func WithPoolConnections(connections int32) Parameter {
 // parseAndCheckParameters parses and checks parameters to ensure that mandatory parameters are present and correct.
 func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 	parameters := parameters{
+		logLevel:        zerolog.GlobalLevel(),
 		timeout:         30 * time.Second,
 		poolConnections: 128,
 		monitor:         &nullMetrics{},

@@ -1,4 +1,4 @@
-// Copyright © 2020, 2022 Weald Technology Trading.
+// Copyright © 2020 - 2024 Weald Technology Trading.
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -15,10 +15,13 @@ package dirk
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/rs/zerolog"
+	zerologger "github.com/rs/zerolog/log"
 	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
 	"google.golang.org/grpc/credentials"
 )
@@ -29,20 +32,25 @@ const (
 
 // wallet contains the details of a remote dirk wallet.
 type wallet struct {
+	log                zerolog.Logger
 	id                 uuid.UUID
 	name               string
 	version            uint
 	endpoints          []*Endpoint
 	timeout            time.Duration
 	connectionProvider ConnectionProvider
+
+	accountMap   map[[48]byte]e2wtypes.Account
+	accountMapMu sync.RWMutex
 }
 
 // newWallet creates a new wallet.
 func newWallet() *wallet {
 	return &wallet{
-		id:      uuid.MustParse("00000000-0000-0000-0000-000000000000"),
-		timeout: 30 * time.Second,
-		version: 1,
+		id:         uuid.MustParse("00000000-0000-0000-0000-000000000000"),
+		timeout:    30 * time.Second,
+		version:    1,
+		accountMap: make(map[[48]byte]e2wtypes.Account),
 	}
 }
 
@@ -58,11 +66,18 @@ func Open(ctx context.Context,
 		return nil, errors.Wrap(err, "problem with parameters")
 	}
 
+	// Set logging.
+	log := zerologger.With().Str("service", "wallet").Str("impl", "dirk").Logger()
+	if parameters.logLevel != log.GetLevel() {
+		log = log.Level(parameters.logLevel)
+	}
+
 	if err := registerMetrics(ctx, parameters.monitor); err != nil {
 		return nil, errors.Wrap(err, "failed to register metrics")
 	}
 
 	wallet := newWallet()
+	wallet.log = log
 	wallet.name = parameters.name
 	wallet.timeout = parameters.timeout
 	wallet.endpoints = make([]*Endpoint, len(parameters.endpoints))
@@ -77,6 +92,7 @@ func Open(ctx context.Context,
 			port: parameters.endpoints[i].port,
 		}
 	}
+	wallet.log.Trace().Str("name", wallet.name).Msg("Opened wallet")
 
 	return wallet, nil
 }
@@ -145,7 +161,9 @@ func (w *wallet) Accounts(ctx context.Context) <-chan e2wtypes.Account {
 	ch := make(chan e2wtypes.Account, 1024)
 	go func() {
 		accounts, err := w.List(ctx, "")
-		if err == nil {
+		if err != nil {
+			w.log.Error().Err(err).Msg("Failed to obtain accounts")
+		} else {
 			for _, account := range accounts {
 				ch <- account
 			}
