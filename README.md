@@ -45,7 +45,7 @@ Note that although non-deterministic wallets do not have passphrases they still 
 package main
 
 import (
-    "github.com/wealdtech/go-eth2-dirk"
+    "github.com/wealdtech/go-eth2-wallet-dirk"
     "google.golang.org/grpc/credentials"
 )
 

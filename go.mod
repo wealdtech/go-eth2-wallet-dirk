@@ -1,8 +1,8 @@
 module github.com/wealdtech/go-eth2-wallet-dirk
 
-go 1.21
+go 1.22
 
-toolchain go1.21.6
+toolchain go1.22.4
 
 require (
 	github.com/google/uuid v1.6.0

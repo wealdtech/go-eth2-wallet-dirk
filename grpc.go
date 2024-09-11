@@ -177,7 +177,7 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 	return accounts, nil
 }
 
-// Unlock unlocks an account.
+// UnlockAccount unlocks an account.
 func (w *wallet) UnlockAccount(ctx context.Context, accountName string, passphrase []byte) (bool, error) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "UnlockAccount", trace.WithAttributes(
 		attribute.String("wallet", w.Name()),
@@ -209,7 +209,7 @@ func (w *wallet) UnlockAccount(ctx context.Context, accountName string, passphra
 	return resp.GetState() == pb.ResponseState_SUCCEEDED, nil
 }
 
-// Lock locks an account.
+// LockAccount locks an account.
 func (w *wallet) LockAccount(ctx context.Context, accountName string) error {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "LockAccount", trace.WithAttributes(
 		attribute.String("wallet", w.Name()),
@@ -331,6 +331,137 @@ func (a *distributedAccount) SignGRPC(ctx context.Context,
 	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
 	defer cancelFunc()
 	sig, err := a.thresholdSign(ctx, req)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to obtain signature")
+	}
+
+	return sig, nil
+}
+
+// SignMultiGRPC signs data over GRPC.
+func (a *account) SignMultiGRPC(ctx context.Context,
+	root []byte,
+	domain []byte,
+	accounts []e2wtypes.Account,
+) (
+	[]e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignMultiGRPC", trace.WithAttributes(
+		attribute.String("wallet", a.wallet.Name()),
+		attribute.String("account", a.Name()),
+	))
+	defer span.End()
+
+	if len(root) != 32 {
+		return nil, errors.New("data must be 32 bytes in length")
+	}
+
+	// Ensure these really are all accounts.
+	for i := range accounts {
+		if _, isAccount := accounts[i].(*account); !isAccount {
+			return nil, errors.New("non-account provided in list")
+		}
+	}
+	req := &pb.MultisignRequest{
+		Requests: make([]*pb.SignRequest, len(accounts)),
+	}
+
+	for i := range accounts {
+		assertedAccount, isAccount := accounts[i].(*account)
+		if !isAccount {
+			return nil, errors.New("account not of required type")
+		}
+		req.Requests[i] = &pb.SignRequest{
+			Id:     &pb.SignRequest_Account{Account: fmt.Sprintf("%s/%s", assertedAccount.wallet.Name(), accounts[i].Name())},
+			Data:   root,
+			Domain: domain,
+		}
+	}
+	endpoint := a.wallet.endpoints[0]
+	conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to connect to endpoint")
+	}
+	defer release()
+
+	client := pb.NewSignerClient(conn)
+	if client == nil {
+		return nil, errors.New("failed to set up signing client")
+	}
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
+	resp, err := client.Multisign(ctx, req)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to obtain signatures")
+	}
+
+	sigs := make([]e2types.Signature, len(accounts))
+	for i, response := range resp.GetResponses() {
+		if response.GetState() == pb.ResponseState_FAILED {
+			return nil, errors.New("request to obtain signatures failed")
+		}
+		if response.GetState() == pb.ResponseState_DENIED {
+			return nil, errors.New("request to obtain signatures denied")
+		}
+		span.AddEvent("Obtained signature bytes")
+		sigs[i], err = e2types.BLSSignatureFromBytes(response.GetSignature())
+		if err != nil {
+			return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %v", endpoint))
+		}
+	}
+	span.AddEvent("Generated signatures from bytes")
+
+	return sigs, nil
+}
+
+// SignMultiGRPC signs data over GRPC.
+func (a *distributedAccount) SignMultiGRPC(ctx context.Context,
+	root []byte,
+	domain []byte,
+	accounts []e2wtypes.Account,
+) (
+	[]e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignMultiGRPC", trace.WithAttributes(
+		attribute.String("wallet", a.wallet.Name()),
+		attribute.String("account", a.Name()),
+	))
+	defer span.End()
+
+	if len(root) != 32 {
+		return nil, errors.New("data must be 32 bytes in length")
+	}
+
+	// Ensure these really are all distributed accounts.
+	for i := range accounts {
+		if _, isAccount := accounts[i].(*distributedAccount); !isAccount {
+			return nil, errors.New("non-distributed account provided in list")
+		}
+	}
+
+	req := &pb.MultisignRequest{
+		Requests: make([]*pb.SignRequest, len(accounts)),
+	}
+
+	thresholds := make([]uint32, len(accounts))
+	for i := range accounts {
+		assertedAccount, isAccount := accounts[i].(*distributedAccount)
+		if !isAccount {
+			return nil, errors.New("account not of required type")
+		}
+		thresholds[i] = assertedAccount.signingThreshold
+		req.Requests[i] = &pb.SignRequest{
+			Id:     &pb.SignRequest_Account{Account: fmt.Sprintf("%s/%s", assertedAccount.wallet.Name(), accounts[i].Name())},
+			Data:   root,
+			Domain: domain,
+		}
+	}
+
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
+	sig, err := a.thresholdMultiSign(ctx, req, thresholds)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
 	}
@@ -882,6 +1013,148 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 	return e2types.BLSSignatureFromSig(signature)
 }
 
+// thresholdMultiSign handles signing multiple requests, with a threshold of responses.
+func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.MultisignRequest, thresholds []uint32) ([]e2types.Signature, error) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdMultiSign")
+	defer span.End()
+
+	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
+	for id, endpoint := range a.participants {
+		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
+		if err != nil {
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to connect to endpoint %v", endpoint))
+		}
+		defer release()
+
+		clients[id] = pb.NewSignerClient(conn)
+		if clients[id] == nil {
+			return nil, fmt.Errorf("failed to set up signing client for %v", endpoint)
+		}
+	}
+
+	type thresholdSignResponse struct {
+		id   uint64
+		resp *pb.MultisignResponse
+	}
+	respChannel := make(chan *thresholdSignResponse, len(clients))
+	errChannel := make(chan error, len(clients))
+
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
+	for id, client := range clients {
+		go func(client pb.SignerClient, id uint64, req *pb.MultisignRequest) {
+			resp, err := client.Multisign(ctx, req)
+			if err != nil {
+				errChannel <- err
+			} else {
+				respChannel <- &thresholdSignResponse{
+					id:   id,
+					resp: resp,
+				}
+			}
+		}(client, id, req)
+	}
+	span.AddEvent("Contacted all servers")
+
+	// Wait for enough responses (or context done).
+	responses := 0
+	signed := make([]int, len(thresholds))
+	denied := make([]int, len(thresholds))
+	failed := make([]int, len(thresholds))
+	errored := make([]int, len(thresholds))
+	ids := make([][]bls.ID, len(thresholds))
+	signatureBytes := make([][][]byte, len(thresholds))
+	for i := range ids {
+		ids[i] = make([]bls.ID, 0, len(clients))
+		signatureBytes[i] = make([][]byte, 0, len(clients))
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, errors.New("context done")
+		case <-errChannel:
+			for i := range errored {
+				errored[i]++
+			}
+			responses++
+		case resp := <-respChannel:
+			responses++
+			for i, response := range resp.resp.GetResponses() {
+				switch response.GetState() {
+				case pb.ResponseState_DENIED:
+					denied[i]++
+				case pb.ResponseState_FAILED:
+					failed[i]++
+				case pb.ResponseState_UNKNOWN:
+					// We consider unknown to be failed.
+					failed[i]++
+				case pb.ResponseState_SUCCEEDED:
+					signed[i]++
+					ids[i] = append(ids[i], *blsID(resp.id))
+					signatureBytes[i] = append(signatureBytes[i], response.GetSignature())
+				}
+			}
+		}
+
+		// See if we have enough successful responses for all requests.
+		if responses == len(clients) {
+			// We have all the responses; done by definition.
+			break
+		}
+
+		// We could be done early if we have enough signatures.
+		done := true
+		for i := range ids {
+			if len(ids[i]) != int(thresholds[i]) {
+				done = false
+				break
+			}
+		}
+		if done {
+			break
+		}
+	}
+	span.AddEvent("Received responses")
+
+	// Take the signature bytes, turn them in to real signatures, then
+	// recover the final signature from the components.
+	sem := semaphore.NewWeighted(int64(runtime.GOMAXPROCS(0)))
+	var wg sync.WaitGroup
+	res := make([]e2types.Signature, len(thresholds))
+	var err error
+	for i := range ids {
+		wg.Add(1)
+		go func(_ context.Context, _ *semaphore.Weighted, wg *sync.WaitGroup, i int) {
+			defer wg.Done()
+			if signed[i] != int(thresholds[i]) {
+				// Not enough components to make the composite signature.
+				return
+			}
+
+			components := make([]bls.Sign, thresholds[i])
+			for j := 0; j < int(thresholds[i]); j++ {
+				if err := components[j].Deserialize(signatureBytes[i][j]); err != nil {
+					return
+				}
+			}
+			var signature bls.Sign
+			if err := signature.Recover(components, ids[i][0:thresholds[i]]); err != nil {
+				// Invalid components.
+				return
+			}
+			res[i], err = e2types.BLSSignatureFromSig(signature)
+			if err != nil {
+				// Invalid composite signature.
+				res[i] = nil
+			}
+		}(ctx, sem, &wg, i)
+	}
+	wg.Wait()
+	span.AddEvent("Recovered signatures")
+
+	return res, nil
+}
+
 // thresholdSignBeaconAttestation handles signing, with a threshold of responses.
 func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context, req *pb.SignBeaconAttestationRequest) (e2types.Signature, error) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconAttestation")
@@ -1060,7 +1333,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 			}
 		}
 
-		// See if we have enough successful reponses for all requests.
+		// See if we have enough successful responses for all requests.
 		if responses == len(clients) {
 			// We have all the responses; done by definition.
 			break
