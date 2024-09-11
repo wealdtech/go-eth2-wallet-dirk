@@ -482,7 +482,7 @@ func (a *account) SignBeaconProposalGRPC(ctx context.Context,
 	error,
 ) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconProposalGRPC", trace.WithAttributes(
-		attribute.Int64("slot", int64(slot)),
+		attribute.Int64("slot", Uint64ToInt64(slot)),
 		attribute.String("wallet", a.wallet.Name()),
 		attribute.String("account", a.Name()),
 	))
@@ -548,7 +548,7 @@ func (a *distributedAccount) SignBeaconProposalGRPC(ctx context.Context,
 	error,
 ) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconProposalGRPC", trace.WithAttributes(
-		attribute.Int64("slot", int64(slot)),
+		attribute.Int64("slot", Uint64ToInt64(slot)),
 		attribute.String("wallet", a.wallet.Name()),
 		attribute.String("account", a.Name()),
 	))
@@ -591,7 +591,7 @@ func (a *account) SignBeaconAttestationGRPC(ctx context.Context,
 	error,
 ) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconAttestationGRPC", trace.WithAttributes(
-		attribute.Int64("slot", int64(slot)),
+		attribute.Int64("slot", Uint64ToInt64(slot)),
 		attribute.String("wallet", a.wallet.Name()),
 		attribute.String("account", a.Name()),
 	))
@@ -665,7 +665,7 @@ func (a *distributedAccount) SignBeaconAttestationGRPC(ctx context.Context,
 	error,
 ) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconAttestationGRPC", trace.WithAttributes(
-		attribute.Int64("slot", int64(slot)),
+		attribute.Int64("slot", Uint64ToInt64(slot)),
 		attribute.String("wallet", a.wallet.Name()),
 		attribute.String("account", a.Name()),
 	))
@@ -713,7 +713,7 @@ func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
 	error,
 ) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconAttestationsGRPC", trace.WithAttributes(
-		attribute.Int64("slot", int64(slot)),
+		attribute.Int64("slot", Uint64ToInt64(slot)),
 		attribute.Int("accounts", len(accounts)),
 	))
 	defer span.End()
@@ -803,7 +803,7 @@ func (a *distributedAccount) SignBeaconAttestationsGRPC(ctx context.Context,
 	error,
 ) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "SignBeaconAttestationsGRPC", trace.WithAttributes(
-		attribute.Int64("slot", int64(slot)),
+		attribute.Int64("slot", Uint64ToInt64(slot)),
 		attribute.Int("accounts", len(accounts)),
 	))
 	defer span.End()

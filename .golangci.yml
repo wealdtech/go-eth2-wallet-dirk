@@ -133,6 +133,7 @@ linters:
     - cyclop
     - depguard
     - dupl
+    - err113
     - exhaustruct
     - funlen
     - gochecknoglobals
@@ -140,6 +141,7 @@ linters:
     - gomnd
     - ireturn
     - lll
+    - mnd
     - perfsprint
     - varnamelen
     - wsl
