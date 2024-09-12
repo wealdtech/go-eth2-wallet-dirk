@@ -108,8 +108,8 @@ func (a *account) SignGeneric(ctx context.Context, data []byte, domain []byte) (
 }
 
 // SignGenericMulti signs multiple generic data roots.
-func (a *account) SignGenericMulti(ctx context.Context, data []byte, domain []byte, accounts []e2wtypes.Account) ([]e2types.Signature, error) {
-	sigs, err := a.SignMultiGRPC(ctx, data, domain, accounts)
+func (a *account) SignGenericMulti(ctx context.Context, accounts []e2wtypes.Account, data [][]byte, domain []byte) ([]e2types.Signature, error) {
+	sigs, err := a.SignMultiGRPC(ctx, accounts, data, domain)
 	if err != nil {
 		return nil, err
 	}

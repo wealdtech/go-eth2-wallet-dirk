@@ -340,9 +340,9 @@ func (a *distributedAccount) SignGRPC(ctx context.Context,
 
 // SignMultiGRPC signs data over GRPC.
 func (a *account) SignMultiGRPC(ctx context.Context,
-	root []byte,
-	domain []byte,
 	accounts []e2wtypes.Account,
+	data [][]byte,
+	domain []byte,
 ) (
 	[]e2types.Signature,
 	error,
@@ -353,16 +353,12 @@ func (a *account) SignMultiGRPC(ctx context.Context,
 	))
 	defer span.End()
 
-	if len(root) != 32 {
-		return nil, errors.New("data must be 32 bytes in length")
-	}
-
-	// Ensure these really are all accounts.
-	for i := range accounts {
-		if _, isAccount := accounts[i].(*account); !isAccount {
-			return nil, errors.New("non-account provided in list")
+	for i := range data {
+		if len(data[i]) != 32 {
+			return nil, errors.New("data must be 32 bytes in length")
 		}
 	}
+
 	req := &pb.MultisignRequest{
 		Requests: make([]*pb.SignRequest, len(accounts)),
 	}
@@ -374,7 +370,7 @@ func (a *account) SignMultiGRPC(ctx context.Context,
 		}
 		req.Requests[i] = &pb.SignRequest{
 			Id:     &pb.SignRequest_Account{Account: fmt.Sprintf("%s/%s", assertedAccount.wallet.Name(), accounts[i].Name())},
-			Data:   root,
+			Data:   data[i],
 			Domain: domain,
 		}
 	}
@@ -404,7 +400,6 @@ func (a *account) SignMultiGRPC(ctx context.Context,
 		if response.GetState() == pb.ResponseState_DENIED {
 			return nil, errors.New("request to obtain signatures denied")
 		}
-		span.AddEvent("Obtained signature bytes")
 		sigs[i], err = e2types.BLSSignatureFromBytes(response.GetSignature())
 		if err != nil {
 			return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %v", endpoint))
@@ -417,9 +412,9 @@ func (a *account) SignMultiGRPC(ctx context.Context,
 
 // SignMultiGRPC signs data over GRPC.
 func (a *distributedAccount) SignMultiGRPC(ctx context.Context,
-	root []byte,
-	domain []byte,
 	accounts []e2wtypes.Account,
+	data [][]byte,
+	domain []byte,
 ) (
 	[]e2types.Signature,
 	error,
@@ -430,14 +425,9 @@ func (a *distributedAccount) SignMultiGRPC(ctx context.Context,
 	))
 	defer span.End()
 
-	if len(root) != 32 {
-		return nil, errors.New("data must be 32 bytes in length")
-	}
-
-	// Ensure these really are all distributed accounts.
-	for i := range accounts {
-		if _, isAccount := accounts[i].(*distributedAccount); !isAccount {
-			return nil, errors.New("non-distributed account provided in list")
+	for i := range data {
+		if len(data[i]) != 32 {
+			return nil, errors.New("data must be 32 bytes in length")
 		}
 	}
 
@@ -454,19 +444,19 @@ func (a *distributedAccount) SignMultiGRPC(ctx context.Context,
 		thresholds[i] = assertedAccount.signingThreshold
 		req.Requests[i] = &pb.SignRequest{
 			Id:     &pb.SignRequest_Account{Account: fmt.Sprintf("%s/%s", assertedAccount.wallet.Name(), accounts[i].Name())},
-			Data:   root,
+			Data:   data[i],
 			Domain: domain,
 		}
 	}
 
 	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
 	defer cancelFunc()
-	sig, err := a.thresholdMultiSign(ctx, req, thresholds)
+	sigs, err := a.thresholdMultiSign(ctx, req, thresholds)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain signature")
 	}
 
-	return sig, nil
+	return sigs, nil
 }
 
 // SignBeaconProposalGRPC signs a beacon chain proposal over GRPC.
