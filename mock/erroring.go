@@ -18,20 +18,35 @@ import (
 	"errors"
 
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
+	"google.golang.org/grpc"
 )
 
 // ErroringService is a mock service that returns errors.
 type ErroringService struct{}
 
 // Sign returns an error.
-func (s *ErroringService) Sign(_ context.Context, _ *pb.SignRequest) (*pb.SignResponse, error) {
+func (s *ErroringService) Sign(_ context.Context, _ *pb.SignRequest, _ ...grpc.CallOption) (*pb.SignResponse, error) {
 	return &pb.SignResponse{
 		State: pb.ResponseState_UNKNOWN,
 	}, errors.New("mock error")
 }
 
+// Multisign returns an error.
+func (s *ErroringService) Multisign(_ context.Context, in *pb.MultisignRequest, _ ...grpc.CallOption) (*pb.MultisignResponse, error) {
+	responses := make([]*pb.SignResponse, len(in.GetRequests()))
+	for i := range responses {
+		responses[i] = &pb.SignResponse{
+			State: pb.ResponseState_UNKNOWN,
+		}
+	}
+
+	return &pb.MultisignResponse{
+		Responses: responses,
+	}, errors.New("mock error")
+}
+
 // SignBeaconAttestation returns an error.
-func (s *ErroringService) SignBeaconAttestation(_ context.Context, _ *pb.SignBeaconAttestationRequest) (*pb.SignResponse, error) {
+func (s *ErroringService) SignBeaconAttestation(_ context.Context, _ *pb.SignBeaconAttestationRequest, _ ...grpc.CallOption) (*pb.SignResponse, error) {
 	return &pb.SignResponse{
 		State: pb.ResponseState_UNKNOWN,
 	}, errors.New("mock error")
@@ -40,6 +55,7 @@ func (s *ErroringService) SignBeaconAttestation(_ context.Context, _ *pb.SignBea
 // SignBeaconAttestations returns an error.
 func (s *ErroringService) SignBeaconAttestations(_ context.Context,
 	in *pb.SignBeaconAttestationsRequest,
+	_ ...grpc.CallOption,
 ) (
 	*pb.MultisignResponse,
 	error,
@@ -57,7 +73,7 @@ func (s *ErroringService) SignBeaconAttestations(_ context.Context,
 }
 
 // SignBeaconProposal returns an error.
-func (s *ErroringService) SignBeaconProposal(_ context.Context, _ *pb.SignBeaconProposalRequest) (*pb.SignResponse, error) {
+func (s *ErroringService) SignBeaconProposal(_ context.Context, _ *pb.SignBeaconProposalRequest, _ ...grpc.CallOption) (*pb.SignResponse, error) {
 	return &pb.SignResponse{
 		State: pb.ResponseState_UNKNOWN,
 	}, errors.New("mock error")
