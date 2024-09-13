@@ -140,6 +140,16 @@ func (a *distributedAccount) SignGeneric(ctx context.Context, data []byte, domai
 	return sig, nil
 }
 
+// SignGenericMulti signs multiple generic data roots.
+func (a *distributedAccount) SignGenericMulti(ctx context.Context, accounts []e2wtypes.Account, data [][]byte, domain []byte) ([]e2types.Signature, error) {
+	sigs, err := a.SignMultiGRPC(ctx, accounts, data, domain)
+	if err != nil {
+		return nil, err
+	}
+
+	return sigs, nil
+}
+
 // SignBeaconProposal signs a beacon proposal with protection.
 func (a *distributedAccount) SignBeaconProposal(ctx context.Context,
 	slot uint64,

@@ -1,8 +1,8 @@
 module github.com/wealdtech/go-eth2-wallet-dirk
 
-go 1.21
+go 1.22
 
-toolchain go1.21.6
+toolchain go1.22.4
 
 require (
 	github.com/google/uuid v1.6.0
@@ -14,7 +14,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/wealdtech/eth2-signer-api v1.7.2
 	github.com/wealdtech/go-eth2-types/v2 v2.8.2
-	github.com/wealdtech/go-eth2-wallet-types/v2 v2.11.0
+	github.com/wealdtech/go-eth2-wallet-types/v2 v2.12.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.51.0
 	go.opentelemetry.io/otel v1.26.0
 	go.opentelemetry.io/otel/trace v1.26.0
