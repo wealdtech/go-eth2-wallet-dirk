@@ -6,5 +6,6 @@ func Uint64ToInt64(val uint64) int64 {
 		panic("value too large to convert to int64")
 	}
 
+	//nolint:gosec
 	return int64(val)
 }

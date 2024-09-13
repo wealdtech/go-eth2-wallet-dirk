@@ -106,7 +106,7 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 	var err error
 	ctx, cancelFunc := context.WithTimeout(ctx, w.timeout)
 	defer cancelFunc()
-	for i := 0; i < len(w.endpoints); i++ {
+	for i := range len(w.endpoints) {
 		var conn *grpc.ClientConn
 		var release func()
 		conn, release, err = w.connectionProvider.Connection(ctx, w.endpoints[i])
@@ -1122,7 +1122,7 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 			}
 
 			components := make([]bls.Sign, thresholds[i])
-			for j := 0; j < int(thresholds[i]); j++ {
+			for j := range thresholds[i] {
 				if err := components[j].Deserialize(signatureBytes[i][j]); err != nil {
 					return
 				}
@@ -1359,7 +1359,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 			}
 
 			components := make([]bls.Sign, thresholds[i])
-			for j := 0; j < int(thresholds[i]); j++ {
+			for j := range thresholds[i] {
 				if err := components[j].Deserialize(signatureBytes[i][j]); err != nil {
 					return
 				}
