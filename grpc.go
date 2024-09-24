@@ -353,6 +353,10 @@ func (a *account) SignMultiGRPC(ctx context.Context,
 	))
 	defer span.End()
 
+	if len(accounts) != len(data) {
+		return nil, errors.New("number of accounts does not match number of data")
+	}
+
 	for i := range data {
 		if len(data[i]) != 32 {
 			return nil, errors.New("data must be 32 bytes in length")
@@ -424,6 +428,10 @@ func (a *distributedAccount) SignMultiGRPC(ctx context.Context,
 		attribute.String("account", a.Name()),
 	))
 	defer span.End()
+
+	if len(accounts) != len(data) {
+		return nil, errors.New("number of accounts does not match number of data")
+	}
 
 	for i := range data {
 		if len(data[i]) != 32 {
