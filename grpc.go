@@ -753,6 +753,7 @@ func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
 	if client == nil {
 		return nil, errors.New("failed to set up signing client")
 	}
+
 	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
 	defer cancelFunc()
 	resp, err := client.SignBeaconAttestations(ctx, req)
@@ -959,7 +960,7 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 	errored := 0
 	ids := make([]bls.ID, a.signingThreshold)
 	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed != int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
+	for signed < int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
@@ -989,7 +990,7 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		attribute.Int("failed", failed),
 		attribute.Int("errored", errored),
 	))
-	if signed != int(a.signingThreshold) {
+	if signed < int(a.signingThreshold) {
 		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
 
@@ -1095,7 +1096,7 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 		// We could be done early if we have enough signatures.
 		done := true
 		for i := range ids {
-			if len(ids[i]) != int(thresholds[i]) {
+			if len(ids[i]) < int(thresholds[i]) {
 				done = false
 				break
 			}
@@ -1116,25 +1117,50 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 		wg.Add(1)
 		go func(_ context.Context, _ *semaphore.Weighted, wg *sync.WaitGroup, i int) {
 			defer wg.Done()
-			if signed[i] != int(thresholds[i]) {
-				// Not enough components to make the composite signature.
+
+			log := a.wallet.log.With().
+				Str("account", req.GetRequests()[i].GetAccount()).
+				Str("pubkey", fmt.Sprintf("%#x", (req.GetRequests()[i].GetPublicKey()))).
+				Int("index", i).
+				Logger()
+
+			if signed[i] < int(thresholds[i]) {
+				log.Error().
+					Int("signed", signed[i]).
+					Uint32("threshold", thresholds[i]).
+					Msg("Not enough components to make composite signature")
+
 				return
 			}
 
 			components := make([]bls.Sign, thresholds[i])
 			for j := range thresholds[i] {
 				if err := components[j].Deserialize(signatureBytes[i][j]); err != nil {
+					log.Error().Err(err).
+						Uint32("component", j).
+						Str("signature_bytes", fmt.Sprintf("%#x", signatureBytes[i][j])).
+						Msg("Failed to deserialize signature bytes")
+
 					return
 				}
 			}
 			var signature bls.Sign
 			if err := signature.Recover(components, ids[i][0:thresholds[i]]); err != nil {
 				// Invalid components.
+				sigs := make([]string, len(components))
+				for i := range components {
+					sigs[i] = fmt.Sprintf("%#x", components[i].Serialize())
+				}
+				log.Warn().Err(err).Strs("sigs", sigs).Msg("Failed to recover signature")
+
 				return
 			}
 			res[i], err = e2types.BLSSignatureFromSig(signature)
 			if err != nil {
 				// Invalid composite signature.
+				log.Error().
+					Err(err).
+					Msg("Failed to recreate signature")
 				res[i] = nil
 			}
 		}(ctx, sem, &wg, i)
@@ -1196,7 +1222,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 	errored := 0
 	ids := make([]bls.ID, a.signingThreshold)
 	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed != int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
+	for signed < int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
@@ -1226,7 +1252,14 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 		attribute.Int("failed", failed),
 		attribute.Int("errored", errored),
 	))
-	if signed != int(a.signingThreshold) {
+	if signed < int(a.signingThreshold) {
+		a.wallet.log.Error().
+			Int("signed", signed).
+			Int("denied", denied).
+			Int("failed", failed).
+			Int("errored", errored).
+			Msg("Not enough signatures")
+
 		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
 
@@ -1241,7 +1274,13 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 }
 
 // thresholdSignBeaconAttestations handles signing, with a threshold of responses.
-func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context, req *pb.SignBeaconAttestationsRequest, thresholds []uint32) ([]e2types.Signature, error) {
+func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context,
+	req *pb.SignBeaconAttestationsRequest,
+	thresholds []uint32,
+) (
+	[]e2types.Signature,
+	error,
+) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconAttestations")
 	defer span.End()
 
@@ -1264,7 +1303,12 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		resp *pb.MultisignResponse
 	}
 	respChannel := make(chan *thresholdSignResponse, len(clients))
-	errChannel := make(chan error, len(clients))
+
+	type thresholdSignError struct {
+		id  uint64
+		err error
+	}
+	errChannel := make(chan *thresholdSignError, len(clients))
 
 	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
 	defer cancelFunc()
@@ -1272,7 +1316,10 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconAttestationsRequest) {
 			resp, err := client.SignBeaconAttestations(ctx, req)
 			if err != nil {
-				errChannel <- err
+				errChannel <- &thresholdSignError{
+					id:  id,
+					err: err,
+				}
 			} else {
 				respChannel <- &thresholdSignResponse{
 					id:   id,
@@ -1299,7 +1346,8 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
-		case <-errChannel:
+		case resp := <-errChannel:
+			a.wallet.log.Warn().Uint64("server_id", resp.id).Err(resp.err).Msg("Received error")
 			for i := range errored {
 				errored[i]++
 			}
@@ -1332,7 +1380,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		// We could be done early if we have enough signatures.
 		done := true
 		for i := range ids {
-			if len(ids[i]) != int(thresholds[i]) {
+			if len(ids[i]) < int(thresholds[i]) {
 				done = false
 				break
 			}
@@ -1353,25 +1401,50 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		wg.Add(1)
 		go func(_ context.Context, _ *semaphore.Weighted, wg *sync.WaitGroup, i int) {
 			defer wg.Done()
-			if signed[i] != int(thresholds[i]) {
-				// Not enough components to make the composite signature.
+
+			log := a.wallet.log.With().
+				Str("account", req.GetRequests()[i].GetAccount()).
+				Str("pubkey", fmt.Sprintf("%#x", (req.GetRequests()[i].GetPublicKey()))).
+				Int("index", i).
+				Logger()
+
+			if signed[i] < int(thresholds[i]) {
+				log.Error().
+					Int("signed", signed[i]).
+					Uint32("threshold", thresholds[i]).
+					Msg("Not enough components to make composite signature")
+
 				return
 			}
 
 			components := make([]bls.Sign, thresholds[i])
 			for j := range thresholds[i] {
 				if err := components[j].Deserialize(signatureBytes[i][j]); err != nil {
+					log.Error().Err(err).
+						Uint32("component", j).
+						Str("signature_bytes", fmt.Sprintf("%#x", signatureBytes[i][j])).
+						Msg("Failed to deserialize signature bytes")
+
 					return
 				}
 			}
 			var signature bls.Sign
 			if err := signature.Recover(components, ids[i][0:thresholds[i]]); err != nil {
 				// Invalid components.
+				sigs := make([]string, len(components))
+				for i := range components {
+					sigs[i] = fmt.Sprintf("%#x", components[i].Serialize())
+				}
+				log.Warn().Err(err).Strs("sigs", sigs).Msg("Failed to recover signature")
+
 				return
 			}
 			res[i], err = e2types.BLSSignatureFromSig(signature)
 			if err != nil {
 				// Invalid composite signature.
+				log.Error().
+					Err(err).
+					Msg("Failed to recreate signature")
 				res[i] = nil
 			}
 		}(ctx, sem, &wg, i)
@@ -1407,7 +1480,12 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		resp *pb.SignResponse
 	}
 	respChannel := make(chan *multiSignResponse, len(clients))
-	errChannel := make(chan error, len(clients))
+
+	type multiSignError struct {
+		id  uint64
+		err error
+	}
+	errChannel := make(chan *multiSignError, len(clients))
 
 	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
 	defer cancelFunc()
@@ -1415,7 +1493,10 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconProposalRequest) {
 			resp, err := client.SignBeaconProposal(ctx, req)
 			if err != nil {
-				errChannel <- err
+				errChannel <- &multiSignError{
+					id:  id,
+					err: err,
+				}
 			} else {
 				respChannel <- &multiSignResponse{
 					id:   id,
@@ -1433,11 +1514,12 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 	errored := 0
 	ids := make([]bls.ID, a.signingThreshold)
 	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed != int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
+	for signed < int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
-		case <-errChannel:
+		case resp := <-errChannel:
+			a.wallet.log.Warn().Uint64("server_id", resp.id).Err(resp.err).Msg("Received error")
 			errored++
 		case resp := <-respChannel:
 			switch resp.resp.GetState() {
@@ -1463,7 +1545,7 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		attribute.Int("failed", failed),
 		attribute.Int("errored", errored),
 	))
-	if signed != int(a.signingThreshold) {
+	if signed < int(a.signingThreshold) {
 		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
 
