@@ -753,6 +753,7 @@ func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
 	if client == nil {
 		return nil, errors.New("failed to set up signing client")
 	}
+
 	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
 	defer cancelFunc()
 	resp, err := client.SignBeaconAttestations(ctx, req)
@@ -930,7 +931,12 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		resp *pb.SignResponse
 	}
 	respChannel := make(chan *thresholdSignResponse, len(clients))
-	errChannel := make(chan error, len(clients))
+
+	type thresholdSignError struct {
+		id  uint64
+		err error
+	}
+	errChannel := make(chan *thresholdSignError, len(clients))
 
 	span.AddEvent("Ready to contact servers")
 	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
@@ -940,7 +946,10 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 			resp, err := client.Sign(ctx, req)
 			span.AddEvent("Received response")
 			if err != nil {
-				errChannel <- err
+				errChannel <- &thresholdSignError{
+					id:  id,
+					err: err,
+				}
 			} else {
 				respChannel <- &thresholdSignResponse{
 					id:   id,
@@ -963,7 +972,8 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
-		case <-errChannel:
+		case resp := <-errChannel:
+			a.wallet.log.Warn().Uint64("server_id", resp.id).Err(resp.err).Msg("Received error")
 			errored++
 		case resp := <-respChannel:
 			switch resp.resp.GetState() {
@@ -1027,7 +1037,12 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 		resp *pb.MultisignResponse
 	}
 	respChannel := make(chan *thresholdSignResponse, len(clients))
-	errChannel := make(chan error, len(clients))
+
+	type thresholdSignError struct {
+		id  uint64
+		err error
+	}
+	errChannel := make(chan *thresholdSignError, len(clients))
 
 	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
 	defer cancelFunc()
@@ -1035,7 +1050,10 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 		go func(client pb.SignerClient, id uint64, req *pb.MultisignRequest) {
 			resp, err := client.Multisign(ctx, req)
 			if err != nil {
-				errChannel <- err
+				errChannel <- &thresholdSignError{
+					id:  id,
+					err: err,
+				}
 			} else {
 				respChannel <- &thresholdSignResponse{
 					id:   id,
@@ -1062,7 +1080,8 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
-		case <-errChannel:
+		case resp := <-errChannel:
+			a.wallet.log.Warn().Uint64("server_id", resp.id).Err(resp.err).Msg("Received error")
 			for i := range errored {
 				errored[i]++
 			}
@@ -1117,24 +1136,49 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 		go func(_ context.Context, _ *semaphore.Weighted, wg *sync.WaitGroup, i int) {
 			defer wg.Done()
 
+			log := a.wallet.log.With().
+				Str("account", req.GetRequests()[i].GetAccount()).
+				Str("pubkey", fmt.Sprintf("%#x", (req.GetRequests()[i].GetPublicKey()))).
+				Int("index", i).
+				Logger()
+
 			if signed[i] < int(thresholds[i]) {
+				log.Error().
+					Int("signed", signed[i]).
+					Uint32("threshold", thresholds[i]).
+					Msg("Not enough components to make composite signature")
+
 				return
 			}
 
 			components := make([]bls.Sign, thresholds[i])
 			for j := range thresholds[i] {
 				if err := components[j].Deserialize(signatureBytes[i][j]); err != nil {
+					log.Error().Err(err).
+						Uint32("component", j).
+						Str("signature_bytes", fmt.Sprintf("%#x", signatureBytes[i][j])).
+						Msg("Failed to deserialize signature bytes")
+
 					return
 				}
 			}
 			var signature bls.Sign
 			if err := signature.Recover(components, ids[i][0:thresholds[i]]); err != nil {
 				// Invalid components.
+				sigs := make([]string, len(components))
+				for i := range components {
+					sigs[i] = fmt.Sprintf("%#x", components[i].Serialize())
+				}
+				log.Error().Err(err).Strs("sigs", sigs).Msg("Failed to recover signature")
+
 				return
 			}
 			res[i], err = e2types.BLSSignatureFromSig(signature)
 			if err != nil {
 				// Invalid composite signature.
+				log.Error().
+					Err(err).
+					Msg("Failed to recreate signature")
 				res[i] = nil
 			}
 		}(ctx, sem, &wg, i)
@@ -1146,12 +1190,16 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 }
 
 // thresholdSignBeaconAttestation handles signing, with a threshold of responses.
-func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context, req *pb.SignBeaconAttestationRequest) (e2types.Signature, error) {
+func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
+	req *pb.SignBeaconAttestationRequest,
+) (
+	e2types.Signature,
+	error,
+) {
 	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconAttestation")
 	defer span.End()
 
 	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
-
 	for id, endpoint := range a.participants {
 		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
 		if err != nil {
@@ -1170,7 +1218,12 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 		resp *pb.SignResponse
 	}
 	respChannel := make(chan *thresholdSignResponse, len(clients))
-	errChannel := make(chan error, len(clients))
+
+	type thresholdSignError struct {
+		id  uint64
+		err error
+	}
+	errChannel := make(chan *thresholdSignError, len(clients))
 
 	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
 	defer cancelFunc()
@@ -1178,7 +1231,10 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconAttestationRequest) {
 			resp, err := client.SignBeaconAttestation(ctx, req)
 			if err != nil {
-				errChannel <- err
+				errChannel <- &thresholdSignError{
+					id:  id,
+					err: err,
+				}
 			} else {
 				respChannel <- &thresholdSignResponse{
 					id:   id,
@@ -1200,243 +1256,8 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
-		case <-errChannel:
-			errored++
-		case resp := <-respChannel:
-			switch resp.resp.GetState() {
-			case pb.ResponseState_DENIED:
-				denied++
-			case pb.ResponseState_FAILED:
-				failed++
-			case pb.ResponseState_UNKNOWN:
-				// We consider unknown to be failed.
-				failed++
-			case pb.ResponseState_SUCCEEDED:
-				ids[signed] = *blsID(resp.id)
-				if err := signatures[signed].Deserialize(resp.resp.GetSignature()); err != nil {
-					return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %d", resp.id))
-				}
-				signed++
-			}
-		}
-	}
-	span.AddEvent("Received responses", trace.WithAttributes(
-		attribute.Int("signed", signed),
-		attribute.Int("denied", denied),
-		attribute.Int("failed", failed),
-		attribute.Int("errored", errored),
-	))
-	if signed != int(a.signingThreshold) {
-		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
-	}
-
-	var signature bls.Sign
-	if err := signature.Recover(signatures, ids); err != nil {
-		return nil, errors.Wrap(err, "failed to recover composite signature")
-	}
-	span.AddEvent("Recovered signature")
-
-	//nolint:wrapcheck
-	return e2types.BLSSignatureFromSig(signature)
-}
-
-// thresholdSignBeaconAttestations handles signing, with a threshold of responses.
-func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context, req *pb.SignBeaconAttestationsRequest, thresholds []uint32) ([]e2types.Signature, error) {
-	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconAttestations")
-	defer span.End()
-
-	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
-	for id, endpoint := range a.participants {
-		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
-		if err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("failed to connect to endpoint %v", endpoint))
-		}
-		defer release()
-
-		clients[id] = pb.NewSignerClient(conn)
-		if clients[id] == nil {
-			return nil, fmt.Errorf("failed to set up signing client for %v", endpoint)
-		}
-	}
-
-	type thresholdSignResponse struct {
-		id   uint64
-		resp *pb.MultisignResponse
-	}
-	respChannel := make(chan *thresholdSignResponse, len(clients))
-	errChannel := make(chan error, len(clients))
-
-	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
-	defer cancelFunc()
-	for id, client := range clients {
-		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconAttestationsRequest) {
-			resp, err := client.SignBeaconAttestations(ctx, req)
-			if err != nil {
-				errChannel <- err
-			} else {
-				respChannel <- &thresholdSignResponse{
-					id:   id,
-					resp: resp,
-				}
-			}
-		}(client, id, req)
-	}
-	span.AddEvent("Contacted all servers")
-
-	// Wait for enough responses (or context done).
-	responses := 0
-	signed := make([]int, len(thresholds))
-	denied := make([]int, len(thresholds))
-	failed := make([]int, len(thresholds))
-	errored := make([]int, len(thresholds))
-	ids := make([][]bls.ID, len(thresholds))
-	signatureBytes := make([][][]byte, len(thresholds))
-	for i := range ids {
-		ids[i] = make([]bls.ID, 0, len(clients))
-		signatureBytes[i] = make([][]byte, 0, len(clients))
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return nil, errors.New("context done")
-		case <-errChannel:
-			for i := range errored {
-				errored[i]++
-			}
-			responses++
-		case resp := <-respChannel:
-			responses++
-			for i, response := range resp.resp.GetResponses() {
-				switch response.GetState() {
-				case pb.ResponseState_DENIED:
-					denied[i]++
-				case pb.ResponseState_FAILED:
-					failed[i]++
-				case pb.ResponseState_UNKNOWN:
-					// We consider unknown to be failed.
-					failed[i]++
-				case pb.ResponseState_SUCCEEDED:
-					signed[i]++
-					ids[i] = append(ids[i], *blsID(resp.id))
-					signatureBytes[i] = append(signatureBytes[i], response.GetSignature())
-				}
-			}
-		}
-
-		// See if we have enough successful responses for all requests.
-		if responses == len(clients) {
-			// We have all the responses; done by definition.
-			break
-		}
-
-		// We could be done early if we have enough signatures.
-		done := true
-		for i := range ids {
-			if len(ids[i]) < int(thresholds[i]) {
-				done = false
-				break
-			}
-		}
-		if done {
-			break
-		}
-	}
-	span.AddEvent("Received responses")
-
-	// Take the signature bytes, turn them in to real signatures, then
-	// recover the final signature from the components.
-	sem := semaphore.NewWeighted(int64(runtime.GOMAXPROCS(0)))
-	var wg sync.WaitGroup
-	res := make([]e2types.Signature, len(thresholds))
-	var err error
-	for i := range ids {
-		wg.Add(1)
-		go func(_ context.Context, _ *semaphore.Weighted, wg *sync.WaitGroup, i int) {
-			defer wg.Done()
-			if signed[i] < int(thresholds[i]) {
-				return
-			}
-
-			components := make([]bls.Sign, thresholds[i])
-			for j := range thresholds[i] {
-				if err := components[j].Deserialize(signatureBytes[i][j]); err != nil {
-					return
-				}
-			}
-			var signature bls.Sign
-			if err := signature.Recover(components, ids[i][0:thresholds[i]]); err != nil {
-				// Invalid components.
-				return
-			}
-			res[i], err = e2types.BLSSignatureFromSig(signature)
-			if err != nil {
-				// Invalid composite signature.
-				res[i] = nil
-			}
-		}(ctx, sem, &wg, i)
-	}
-	wg.Wait()
-	span.AddEvent("Recovered signatures")
-
-	return res, nil
-}
-
-// thresholdSignBeaconProposal handles signing, with a threshold of responses.
-func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, req *pb.SignBeaconProposalRequest) (e2types.Signature, error) {
-	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconProposal")
-	defer span.End()
-
-	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
-
-	for id, endpoint := range a.participants {
-		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
-		if err != nil {
-			return nil, errors.Wrap(err, fmt.Sprintf("failed to connect to endpoint %v", endpoint))
-		}
-		defer release()
-
-		clients[id] = pb.NewSignerClient(conn)
-		if clients[id] == nil {
-			return nil, fmt.Errorf("failed to set up signing client for %v", endpoint)
-		}
-	}
-
-	type multiSignResponse struct {
-		id   uint64
-		resp *pb.SignResponse
-	}
-	respChannel := make(chan *multiSignResponse, len(clients))
-	errChannel := make(chan error, len(clients))
-
-	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
-	defer cancelFunc()
-	for id, client := range clients {
-		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconProposalRequest) {
-			resp, err := client.SignBeaconProposal(ctx, req)
-			if err != nil {
-				errChannel <- err
-			} else {
-				respChannel <- &multiSignResponse{
-					id:   id,
-					resp: resp,
-				}
-			}
-		}(client, id, req)
-	}
-	span.AddEvent("Contacted all servers")
-
-	// Wait for enough responses (or context done).
-	signed := 0
-	denied := 0
-	failed := 0
-	errored := 0
-	ids := make([]bls.ID, a.signingThreshold)
-	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed < int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
-		select {
-		case <-ctx.Done():
-			return nil, errors.New("context done")
-		case <-errChannel:
+		case resp := <-errChannel:
+			a.wallet.log.Warn().Uint64("server_id", resp.id).Err(resp.err).Msg("Received error")
 			errored++
 		case resp := <-respChannel:
 			switch resp.resp.GetState() {
@@ -1463,11 +1284,327 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		attribute.Int("errored", errored),
 	))
 	if signed < int(a.signingThreshold) {
+		a.wallet.log.Error().
+			Int("signed", signed).
+			Int("denied", denied).
+			Int("failed", failed).
+			Int("errored", errored).
+			Msg("Not enough signatures")
+
 		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
 
 	var signature bls.Sign
 	if err := signature.Recover(signatures, ids); err != nil {
+		sigs := make([]string, len(signatures))
+		for i := range signatures {
+			sigs[i] = fmt.Sprintf("%#x", signatures[i].Serialize())
+		}
+		a.wallet.log.Error().Err(err).Strs("sigs", sigs).Msg("Failed to recover signature")
+
+		return nil, errors.Wrap(err, "failed to recover composite signature")
+	}
+	span.AddEvent("Recovered signature")
+
+	//nolint:wrapcheck
+	return e2types.BLSSignatureFromSig(signature)
+}
+
+// thresholdSignBeaconAttestations handles signing, with a threshold of responses.
+func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context,
+	req *pb.SignBeaconAttestationsRequest,
+	thresholds []uint32,
+) (
+	[]e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconAttestations")
+	defer span.End()
+
+	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
+	for id, endpoint := range a.participants {
+		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
+		if err != nil {
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to connect to endpoint %v", endpoint))
+		}
+		defer release()
+
+		clients[id] = pb.NewSignerClient(conn)
+		if clients[id] == nil {
+			return nil, fmt.Errorf("failed to set up signing client for %v", endpoint)
+		}
+	}
+
+	type thresholdSignResponse struct {
+		id   uint64
+		resp *pb.MultisignResponse
+	}
+	respChannel := make(chan *thresholdSignResponse, len(clients))
+
+	type thresholdSignError struct {
+		id  uint64
+		err error
+	}
+	errChannel := make(chan *thresholdSignError, len(clients))
+
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
+	for id, client := range clients {
+		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconAttestationsRequest) {
+			resp, err := client.SignBeaconAttestations(ctx, req)
+			if err != nil {
+				errChannel <- &thresholdSignError{
+					id:  id,
+					err: err,
+				}
+			} else {
+				respChannel <- &thresholdSignResponse{
+					id:   id,
+					resp: resp,
+				}
+			}
+		}(client, id, req)
+	}
+	span.AddEvent("Contacted all servers")
+
+	// Wait for enough responses (or context done).
+	responses := 0
+	signed := make([]int, len(thresholds))
+	denied := make([]int, len(thresholds))
+	failed := make([]int, len(thresholds))
+	errored := make([]int, len(thresholds))
+	ids := make([][]bls.ID, len(thresholds))
+	signatureBytes := make([][][]byte, len(thresholds))
+	for i := range ids {
+		ids[i] = make([]bls.ID, 0, len(clients))
+		signatureBytes[i] = make([][]byte, 0, len(clients))
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, errors.New("context done")
+		case resp := <-errChannel:
+			a.wallet.log.Warn().Uint64("server_id", resp.id).Err(resp.err).Msg("Received error")
+			for i := range errored {
+				errored[i]++
+			}
+			responses++
+		case resp := <-respChannel:
+			responses++
+			for i, response := range resp.resp.GetResponses() {
+				switch response.GetState() {
+				case pb.ResponseState_DENIED:
+					denied[i]++
+				case pb.ResponseState_FAILED:
+					failed[i]++
+				case pb.ResponseState_UNKNOWN:
+					// We consider unknown to be failed.
+					failed[i]++
+				case pb.ResponseState_SUCCEEDED:
+					signed[i]++
+					ids[i] = append(ids[i], *blsID(resp.id))
+					signatureBytes[i] = append(signatureBytes[i], response.GetSignature())
+				}
+			}
+		}
+
+		// See if we have enough successful responses for all requests.
+		if responses == len(clients) {
+			// We have all the responses; done by definition.
+			break
+		}
+
+		// We could be done early if we have enough signatures.
+		done := true
+		for i := range ids {
+			if len(ids[i]) < int(thresholds[i]) {
+				done = false
+				break
+			}
+		}
+		if done {
+			break
+		}
+	}
+	span.AddEvent("Received responses")
+
+	// Take the signature bytes, turn them in to real signatures, then
+	// recover the final signature from the components.
+	sem := semaphore.NewWeighted(int64(runtime.GOMAXPROCS(0)))
+	var wg sync.WaitGroup
+	res := make([]e2types.Signature, len(thresholds))
+	var err error
+	for i := range ids {
+		wg.Add(1)
+		go func(_ context.Context, _ *semaphore.Weighted, wg *sync.WaitGroup, i int) {
+			defer wg.Done()
+
+			log := a.wallet.log.With().
+				Str("account", req.GetRequests()[i].GetAccount()).
+				Str("pubkey", fmt.Sprintf("%#x", (req.GetRequests()[i].GetPublicKey()))).
+				Int("index", i).
+				Logger()
+
+			if signed[i] < int(thresholds[i]) {
+				log.Error().
+					Int("signed", signed[i]).
+					Uint32("threshold", thresholds[i]).
+					Msg("Not enough components to make composite signature")
+
+				return
+			}
+
+			components := make([]bls.Sign, thresholds[i])
+			for j := range thresholds[i] {
+				if err := components[j].Deserialize(signatureBytes[i][j]); err != nil {
+					log.Error().Err(err).
+						Uint32("component", j).
+						Str("signature_bytes", fmt.Sprintf("%#x", signatureBytes[i][j])).
+						Msg("Failed to deserialize signature bytes")
+
+					return
+				}
+			}
+			var signature bls.Sign
+			if err := signature.Recover(components, ids[i][0:thresholds[i]]); err != nil {
+				// Invalid components.
+				sigs := make([]string, len(components))
+				for i := range components {
+					sigs[i] = fmt.Sprintf("%#x", components[i].Serialize())
+				}
+				log.Error().Err(err).Strs("sigs", sigs).Msg("Failed to recover signature")
+
+				return
+			}
+			res[i], err = e2types.BLSSignatureFromSig(signature)
+			if err != nil {
+				// Invalid composite signature.
+				log.Error().
+					Err(err).
+					Msg("Failed to recreate signature")
+				res[i] = nil
+			}
+		}(ctx, sem, &wg, i)
+	}
+	wg.Wait()
+	span.AddEvent("Recovered signatures")
+
+	return res, nil
+}
+
+// thresholdSignBeaconProposal handles signing, with a threshold of responses.
+func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context,
+	req *pb.SignBeaconProposalRequest,
+) (
+	e2types.Signature,
+	error,
+) {
+	ctx, span := otel.Tracer("wealdtech.go-eth2-wallet-dirk").Start(ctx, "thresholdSignBeaconProposal")
+	defer span.End()
+
+	clients := make(map[uint64]pb.SignerClient, len(a.Participants()))
+	for id, endpoint := range a.participants {
+		conn, release, err := a.wallet.connectionProvider.Connection(ctx, endpoint)
+		if err != nil {
+			return nil, errors.Wrap(err, fmt.Sprintf("failed to connect to endpoint %v", endpoint))
+		}
+		defer release()
+
+		clients[id] = pb.NewSignerClient(conn)
+		if clients[id] == nil {
+			return nil, fmt.Errorf("failed to set up signing client for %v", endpoint)
+		}
+	}
+
+	type thresholdSignResponse struct {
+		id   uint64
+		resp *pb.SignResponse
+	}
+	respChannel := make(chan *thresholdSignResponse, len(clients))
+
+	type thresholdSignError struct {
+		id  uint64
+		err error
+	}
+	errChannel := make(chan *thresholdSignError, len(clients))
+
+	ctx, cancelFunc := context.WithTimeout(ctx, a.wallet.timeout)
+	defer cancelFunc()
+	for id, client := range clients {
+		go func(client pb.SignerClient, id uint64, req *pb.SignBeaconProposalRequest) {
+			resp, err := client.SignBeaconProposal(ctx, req)
+			if err != nil {
+				errChannel <- &thresholdSignError{
+					id:  id,
+					err: err,
+				}
+			} else {
+				respChannel <- &thresholdSignResponse{
+					id:   id,
+					resp: resp,
+				}
+			}
+		}(client, id, req)
+	}
+	span.AddEvent("Contacted all servers")
+
+	// Wait for enough responses (or context done).
+	signed := 0
+	denied := 0
+	failed := 0
+	errored := 0
+	ids := make([]bls.ID, a.signingThreshold)
+	signatures := make([]bls.Sign, a.signingThreshold)
+	for signed < int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
+		select {
+		case <-ctx.Done():
+			return nil, errors.New("context done")
+		case resp := <-errChannel:
+			a.wallet.log.Warn().Uint64("server_id", resp.id).Err(resp.err).Msg("Received error")
+			errored++
+		case resp := <-respChannel:
+			switch resp.resp.GetState() {
+			case pb.ResponseState_DENIED:
+				denied++
+			case pb.ResponseState_FAILED:
+				failed++
+			case pb.ResponseState_UNKNOWN:
+				// We consider unknown to be failed.
+				failed++
+			case pb.ResponseState_SUCCEEDED:
+				ids[signed] = *blsID(resp.id)
+				if err := signatures[signed].Deserialize(resp.resp.GetSignature()); err != nil {
+					return nil, errors.Wrap(err, fmt.Sprintf("invalid signature received from %d", resp.id))
+				}
+				signed++
+			}
+		}
+	}
+	span.AddEvent("Received responses", trace.WithAttributes(
+		attribute.Int("signed", signed),
+		attribute.Int("denied", denied),
+		attribute.Int("failed", failed),
+		attribute.Int("errored", errored),
+	))
+	if signed < int(a.signingThreshold) {
+		a.wallet.log.Error().
+			Int("signed", signed).
+			Int("denied", denied).
+			Int("failed", failed).
+			Int("errored", errored).
+			Msg("Not enough signatures")
+
+		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
+	}
+
+	var signature bls.Sign
+	if err := signature.Recover(signatures, ids); err != nil {
+		sigs := make([]string, len(signatures))
+		for i := range signatures {
+			sigs[i] = fmt.Sprintf("%#x", signatures[i].Serialize())
+		}
+		a.wallet.log.Error().Err(err).Strs("sigs", sigs).Msg("Failed to recover signature")
+
 		return nil, errors.Wrap(err, "failed to recover composite signature")
 	}
 	span.AddEvent("Recovered signature")
