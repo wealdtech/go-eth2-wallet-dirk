@@ -61,8 +61,8 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 	pool, exists := connectionPools[address]
 	connectionPoolsMu.RUnlock()
 	if !exists {
-		constructor := func(ctx context.Context) (*grpc.ClientConn, error) {
-			conn, err := grpc.DialContext(ctx, address, []grpc.DialOption{
+		constructor := func(_ context.Context) (*grpc.ClientConn, error) {
+			conn, err := grpc.NewClient(address, []grpc.DialOption{
 				grpc.WithTransportCredentials(c.credentials),
 				grpc.WithDefaultCallOptions(
 					// Maximum message receive size is 128 MB.
