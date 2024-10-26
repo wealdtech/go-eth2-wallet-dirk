@@ -959,7 +959,7 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 	errored := 0
 	ids := make([]bls.ID, a.signingThreshold)
 	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed != int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
+	for signed < int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
@@ -989,7 +989,7 @@ func (a *distributedAccount) thresholdSign(ctx context.Context, req *pb.SignRequ
 		attribute.Int("failed", failed),
 		attribute.Int("errored", errored),
 	))
-	if signed != int(a.signingThreshold) {
+	if signed < int(a.signingThreshold) {
 		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
 
@@ -1095,7 +1095,7 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 		// We could be done early if we have enough signatures.
 		done := true
 		for i := range ids {
-			if len(ids[i]) != int(thresholds[i]) {
+			if len(ids[i]) < int(thresholds[i]) {
 				done = false
 				break
 			}
@@ -1116,8 +1116,8 @@ func (a *distributedAccount) thresholdMultiSign(ctx context.Context, req *pb.Mul
 		wg.Add(1)
 		go func(_ context.Context, _ *semaphore.Weighted, wg *sync.WaitGroup, i int) {
 			defer wg.Done()
-			if signed[i] != int(thresholds[i]) {
-				// Not enough components to make the composite signature.
+
+			if signed[i] < int(thresholds[i]) {
 				return
 			}
 
@@ -1196,7 +1196,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestation(ctx context.Context,
 	errored := 0
 	ids := make([]bls.ID, a.signingThreshold)
 	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed != int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
+	for signed < int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
@@ -1332,7 +1332,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		// We could be done early if we have enough signatures.
 		done := true
 		for i := range ids {
-			if len(ids[i]) != int(thresholds[i]) {
+			if len(ids[i]) < int(thresholds[i]) {
 				done = false
 				break
 			}
@@ -1353,8 +1353,7 @@ func (a *distributedAccount) thresholdSignBeaconAttestations(ctx context.Context
 		wg.Add(1)
 		go func(_ context.Context, _ *semaphore.Weighted, wg *sync.WaitGroup, i int) {
 			defer wg.Done()
-			if signed[i] != int(thresholds[i]) {
-				// Not enough components to make the composite signature.
+			if signed[i] < int(thresholds[i]) {
 				return
 			}
 
@@ -1433,7 +1432,7 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 	errored := 0
 	ids := make([]bls.ID, a.signingThreshold)
 	signatures := make([]bls.Sign, a.signingThreshold)
-	for signed != int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
+	for signed < int(a.signingThreshold) && signed+denied+failed+errored != len(clients) {
 		select {
 		case <-ctx.Done():
 			return nil, errors.New("context done")
@@ -1463,7 +1462,7 @@ func (a *distributedAccount) thresholdSignBeaconProposal(ctx context.Context, re
 		attribute.Int("failed", failed),
 		attribute.Int("errored", errored),
 	))
-	if signed != int(a.signingThreshold) {
+	if signed < int(a.signingThreshold) {
 		return nil, fmt.Errorf("not enough signatures: %d signed, %d denied, %d failed, %d errored", signed, denied, failed, errored)
 	}
 
