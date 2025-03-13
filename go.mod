@@ -1,8 +1,7 @@
 module github.com/wealdtech/go-eth2-wallet-dirk
 
 go 1.22
-
-toolchain go1.22.4
+toolchain go1.23.7
 
 require (
 	github.com/google/uuid v1.6.0
@@ -18,7 +17,7 @@ require (
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.56.0
 	go.opentelemetry.io/otel v1.31.0
 	go.opentelemetry.io/otel/trace v1.31.0
-	golang.org/x/sync v0.8.0
+	golang.org/x/sync v0.11.0
 	google.golang.org/grpc v1.67.1
 )
 
@@ -42,9 +41,9 @@ require (
 	github.com/prometheus/common v0.60.1 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	go.opentelemetry.io/otel/metric v1.31.0 // indirect
-	golang.org/x/net v0.30.0 // indirect
-	golang.org/x/sys v0.26.0 // indirect
-	golang.org/x/text v0.19.0 // indirect
+	golang.org/x/net v0.36.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20241021214115-324edc3d5d38 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20241021214115-324edc3d5d38 // indirect
 	google.golang.org/protobuf v1.35.1 // indirect
