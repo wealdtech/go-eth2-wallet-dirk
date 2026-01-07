@@ -36,6 +36,7 @@ type distributedAccount struct {
 	participantConns map[uint64]*grpc.ClientConn
 	version          uint
 	mutex            *sync.RWMutex
+	endpoint         *Endpoint
 }
 
 func newDistributedAccount(wallet *wallet,

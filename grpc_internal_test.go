@@ -84,12 +84,13 @@ func (c *BufConnectionProvider) Connection(ctx context.Context, endpoint *Endpoi
 			pb.RegisterListerServer(server, c.listerServers[int(endpoint.port)%len(c.listerServers)])
 		}
 		c.servers[serverAddress] = server
-		c.listeners[serverAddress] = bufconn.Listen(bufSize)
-		go func() {
-			if err := server.Serve(c.listeners[serverAddress]); err != nil {
+		listener := bufconn.Listen(bufSize)
+		c.listeners[serverAddress] = listener
+		go func(listener *bufconn.Listener) {
+			if err := server.Serve(listener); err != nil {
 				log.Fatalf("Buffer server error: %v", err)
 			}
-		}()
+		}(listener)
 	}
 	c.mutex.Unlock()
 
@@ -117,6 +118,39 @@ func TestListGRPC(t *testing.T) {
 		accounts++
 	}
 	require.Equal(t, 8, accounts)
+}
+
+func TestListGRPCDeduplication(t *testing.T) {
+	require.NoError(t, e2types.InitBLS())
+	ctx := context.Background()
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.MockListerServer{}})
+	require.NoError(t, err)
+	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}, {host: "localhost", port: 12346}})
+	w.(*wallet).SetConnectionProvider(connectionProvider)
+	require.NoError(t, err)
+	accounts := 0
+	for range w.Accounts(ctx) {
+		accounts++
+	}
+	require.Equal(t, 8, accounts)
+}
+
+func TestListGRPCAccountsFromSecondEndpoint(t *testing.T) {
+	mockListerServer := &mock.MockListerServerOverlappingAccounts{}
+	require.NoError(t, e2types.InitBLS())
+	ctx := context.Background()
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{mockListerServer})
+	require.NoError(t, err)
+	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}, {host: "localhost", port: 12346}})
+	w.(*wallet).SetConnectionProvider(connectionProvider)
+	require.NoError(t, err)
+	accounts := 0
+	for range w.Accounts(ctx) {
+		accounts++
+	}
+	// The usual 8, plus an extra interop account, and an extra distributed account.
+	require.Equal(t, 10, accounts)
+	require.Equal(t, 2, mockListerServer.RequestsReceived)
 }
 
 func TestListGRPCErroring(t *testing.T) {

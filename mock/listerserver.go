@@ -19,9 +19,192 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 )
+
+type InteropAccountRegistry map[string]*pb.Account
+type DistributedAccountRegistry map[string]*pb.DistributedAccount
+
+func (r InteropAccountRegistry) GetAccounts(in *pb.ListAccountsRequest) []*pb.Account {
+	accounts := make([]*pb.Account, 0)
+	for _, account := range r {
+		if len(in.GetPaths()) == 0 {
+			accounts = append(accounts, account)
+		} else {
+			for _, path := range in.GetPaths() {
+				if !strings.Contains(path, "/") {
+					accounts = append(accounts, account)
+					break
+				}
+				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
+					accounts = append(accounts, account)
+					break
+				}
+			}
+		}
+	}
+	return accounts
+}
+
+func (r DistributedAccountRegistry) GetDistributedAccounts(in *pb.ListAccountsRequest) []*pb.DistributedAccount {
+	distributedAccounts := make([]*pb.DistributedAccount, 0)
+	for _, account := range r {
+		if len(in.GetPaths()) == 0 {
+			distributedAccounts = append(distributedAccounts, account)
+		} else {
+			for _, path := range in.GetPaths() {
+				if !strings.Contains(path, "/") {
+					distributedAccounts = append(distributedAccounts, account)
+					break
+				}
+				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
+					distributedAccounts = append(distributedAccounts, account)
+					break
+				}
+			}
+		}
+	}
+	return distributedAccounts
+}
+
+var interop0 = &pb.Account{
+	Name:      "Interop 0",
+	PublicKey: _byte("0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c"),
+	Uuid:      _byte("0x00000000000000000000000000000000"),
+}
+
+var interopAccounts = InteropAccountRegistry{
+	"Interop 0": interop0,
+	"Interop 1": {
+		Name:      "Interop 1",
+		PublicKey: _byte("0xb89bebc699769726a318c8e9971bd3171297c61aea4a6578a7a4f94b547dcba5bac16a89108b6b6a1fe3695d1a874a0b"),
+		Uuid:      _byte("0x00000000000000000000000000000001"),
+	},
+	"Interop 2": {
+		Name:      "Interop 2",
+		PublicKey: _byte("0xa3a32b0f8b4ddb83f1a0a853d81dd725dfe577d4f4c3db8ece52ce2b026eca84815c1a7e8e92a4de3d755733bf7e4a9b"),
+		Uuid:      _byte("0x00000000000000000000000000000002"),
+	},
+	"Interop 3": {
+		Name:      "Interop 3",
+		PublicKey: _byte("0x88c141df77cd9d8d7a71a75c826c41a9c9f03c6ee1b180f3e7852f6a280099ded351b58d66e653af8e42816a4d8f532e"),
+		Uuid:      _byte("0x00000000000000000000000000000003"),
+	},
+	"Interop 4": {
+		Name:      "Interop 4",
+		PublicKey: _byte("0x81283b7a20e1ca460ebd9bbd77005d557370cabb1f9a44f530c4c4c66230f675f8df8b4c2818851aa7d77a80ca5a4a5e"),
+		Uuid:      _byte("0x00000000000000000000000000000004"),
+	},
+}
+
+var distributed0 = &pb.DistributedAccount{
+	Name:               "Distributed 0",
+	PublicKey:          _byte("0xaaf4abea98732aa9da46a4ddd8c56c03ec173a4daae90424e986be61d2b07999db746e103d6f505dc98716e91d4f946a"),
+	CompositePublicKey: _byte("0xa155a5fb0a6d732fa0f4d3714a8550ee5b90690475e010fbf89277e98e060203d69eba05fa71b2d0fa6aa6d091172f1e"),
+	SigningThreshold:   3,
+	Participants: []*pb.Endpoint{
+		{
+			Id:   1,
+			Name: "signer-test01",
+			Port: 12001,
+		},
+		{
+			Id:   2,
+			Name: "signer-test02",
+			Port: 12002,
+		},
+		{
+			Id:   3,
+			Name: "signer-test03",
+			Port: 12003,
+		},
+		{
+			Id:   4,
+			Name: "signer-test04",
+			Port: 12004,
+		},
+		{
+			Id:   5,
+			Name: "signer-test05",
+			Port: 12005,
+		},
+	},
+	Uuid: _byte("0x01000000000000000000000000000000"),
+}
+
+var allDistributedAccounts = DistributedAccountRegistry{
+	"Interop 0": distributed0,
+	"Interop 1": {
+		Name:               "Distributed 1",
+		PublicKey:          _byte("0x98bc7c7596d70a27a243e6b6acc4a96bf1666428783671cb8545ced08a10c641fae1afbc83b525fce9357f6be667129e"),
+		CompositePublicKey: _byte("0x93c98077de26a2d382910c64664bb34ca3e29a5a6e3222c590b28efe9bc554b607677947cb6a44b168b2da5c74237fba"),
+		SigningThreshold:   3,
+		Participants: []*pb.Endpoint{
+			{
+				Id:   1,
+				Name: "signer-test01",
+				Port: 12001,
+			},
+			{
+				Id:   2,
+				Name: "signer-test02",
+				Port: 12002,
+			},
+			{
+				Id:   3,
+				Name: "signer-test03",
+				Port: 12003,
+			},
+			{
+				Id:   4,
+				Name: "signer-test04",
+				Port: 12004,
+			},
+			{
+				Id:   5,
+				Name: "signer-test05",
+				Port: 12005,
+			},
+		},
+		Uuid: _byte("0x01000000000000000000000000000001"),
+	},
+	"Interop 2": {
+		Name:               "Distributed 2",
+		PublicKey:          _byte("0x98552b2bdb1860c0c6363111477e3d738220988c9a2ee25fdeaa9971077d2ecde772c87dce07ce5f73754dcb585c43bf"),
+		CompositePublicKey: _byte("0xb75f33e5bd36841eb79f5018ad9f48494ddcc5b71bb671a59effdd2a139f8be18287df69bc028ce9b21e57d37bea5ffa"),
+		SigningThreshold:   3,
+		Participants: []*pb.Endpoint{
+			{
+				Id:   1,
+				Name: "signer-test01",
+				Port: 12001,
+			},
+			{
+				Id:   2,
+				Name: "signer-test02",
+				Port: 12002,
+			},
+			{
+				Id:   3,
+				Name: "signer-test03",
+				Port: 12003,
+			},
+			{
+				Id:   4,
+				Name: "signer-test04",
+				Port: 12004,
+			},
+			{
+				Id:   5,
+				Name: "signer-test05",
+				Port: 12005,
+			},
+		},
+		Uuid: _byte("0x01000000000000000000000000000002"),
+	},
+}
 
 func _byte(input string) []byte {
 	res, _ := hex.DecodeString(strings.TrimPrefix(input, "0x"))
@@ -59,175 +242,69 @@ type MockListerServer struct {
 
 // ListAccounts returns static accounts.
 func (s *MockListerServer) ListAccounts(_ context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
-	interopAccounts := map[string]*pb.Account{
-		"Interop 0": {
-			Name:      "Interop 0",
-			PublicKey: _byte("0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c"),
-			Uuid:      _byte("0x00000000000000000000000000000000"),
-		},
-		"Interop 1": {
-			Name:      "Interop 1",
-			PublicKey: _byte("0xb89bebc699769726a318c8e9971bd3171297c61aea4a6578a7a4f94b547dcba5bac16a89108b6b6a1fe3695d1a874a0b"),
-			Uuid:      _byte("0x00000000000000000000000000000001"),
-		},
-		"Interop 2": {
-			Name:      "Interop 2",
-			PublicKey: _byte("0xa3a32b0f8b4ddb83f1a0a853d81dd725dfe577d4f4c3db8ece52ce2b026eca84815c1a7e8e92a4de3d755733bf7e4a9b"),
-			Uuid:      _byte("0x00000000000000000000000000000002"),
-		},
-		"Interop 3": {
-			Name:      "Interop 3",
-			PublicKey: _byte("0x88c141df77cd9d8d7a71a75c826c41a9c9f03c6ee1b180f3e7852f6a280099ded351b58d66e653af8e42816a4d8f532e"),
-			Uuid:      _byte("0x00000000000000000000000000000003"),
-		},
-		"Interop 4": {
-			Name:      "Interop 4",
-			PublicKey: _byte("0x81283b7a20e1ca460ebd9bbd77005d557370cabb1f9a44f530c4c4c66230f675f8df8b4c2818851aa7d77a80ca5a4a5e"),
-			Uuid:      _byte("0x00000000000000000000000000000004"),
-		},
-	}
-	allDistributedAccounts := map[string]*pb.DistributedAccount{
-		"Interop 0": {
-			Name:               "Distributed 0",
-			PublicKey:          _byte("0xaaf4abea98732aa9da46a4ddd8c56c03ec173a4daae90424e986be61d2b07999db746e103d6f505dc98716e91d4f946a"),
-			CompositePublicKey: _byte("0xa155a5fb0a6d732fa0f4d3714a8550ee5b90690475e010fbf89277e98e060203d69eba05fa71b2d0fa6aa6d091172f1e"),
-			SigningThreshold:   3,
-			Participants: []*pb.Endpoint{
-				{
-					Id:   1,
-					Name: "signer-test01",
-					Port: 12001,
-				},
-				{
-					Id:   2,
-					Name: "signer-test02",
-					Port: 12002,
-				},
-				{
-					Id:   3,
-					Name: "signer-test03",
-					Port: 12003,
-				},
-				{
-					Id:   4,
-					Name: "signer-test04",
-					Port: 12004,
-				},
-				{
-					Id:   5,
-					Name: "signer-test05",
-					Port: 12005,
-				},
-			},
-			Uuid: _byte("0x01000000000000000000000000000000"),
-		},
-		"Interop 1": {
-			Name:               "Distributed 1",
-			PublicKey:          _byte("0x98bc7c7596d70a27a243e6b6acc4a96bf1666428783671cb8545ced08a10c641fae1afbc83b525fce9357f6be667129e"),
-			CompositePublicKey: _byte("0x93c98077de26a2d382910c64664bb34ca3e29a5a6e3222c590b28efe9bc554b607677947cb6a44b168b2da5c74237fba"),
-			SigningThreshold:   3,
-			Participants: []*pb.Endpoint{
-				{
-					Id:   1,
-					Name: "signer-test01",
-					Port: 12001,
-				},
-				{
-					Id:   2,
-					Name: "signer-test02",
-					Port: 12002,
-				},
-				{
-					Id:   3,
-					Name: "signer-test03",
-					Port: 12003,
-				},
-				{
-					Id:   4,
-					Name: "signer-test04",
-					Port: 12004,
-				},
-				{
-					Id:   5,
-					Name: "signer-test05",
-					Port: 12005,
-				},
-			},
-			Uuid: _byte("0x01000000000000000000000000000001"),
-		},
-		"Interop 2": {
-			Name:               "Distributed 2",
-			PublicKey:          _byte("0x98552b2bdb1860c0c6363111477e3d738220988c9a2ee25fdeaa9971077d2ecde772c87dce07ce5f73754dcb585c43bf"),
-			CompositePublicKey: _byte("0xb75f33e5bd36841eb79f5018ad9f48494ddcc5b71bb671a59effdd2a139f8be18287df69bc028ce9b21e57d37bea5ffa"),
-			SigningThreshold:   3,
-			Participants: []*pb.Endpoint{
-				{
-					Id:   1,
-					Name: "signer-test01",
-					Port: 12001,
-				},
-				{
-					Id:   2,
-					Name: "signer-test02",
-					Port: 12002,
-				},
-				{
-					Id:   3,
-					Name: "signer-test03",
-					Port: 12003,
-				},
-				{
-					Id:   4,
-					Name: "signer-test04",
-					Port: 12004,
-				},
-				{
-					Id:   5,
-					Name: "signer-test05",
-					Port: 12005,
-				},
-			},
-			Uuid: _byte("0x01000000000000000000000000000002"),
-		},
+	accounts := interopAccounts.GetAccounts(in)
+	distributedAccounts := allDistributedAccounts.GetDistributedAccounts(in)
+
+	return &pb.ListAccountsResponse{
+		State:               pb.ResponseState_SUCCEEDED,
+		Accounts:            accounts,
+		DistributedAccounts: distributedAccounts,
+	}, nil
+}
+
+type MockListerServerOverlappingAccounts struct {
+	mutex            sync.Mutex
+	RequestsReceived int
+
+	pb.UnimplementedListerServer
+}
+
+var interopAccountOverlapping = InteropAccountRegistry{
+	"Interop 0": interop0,
+	"Extra Interop": {
+		Name:      "Interop 0",
+		PublicKey: _byte("0x8c713b8d713b5166d85fdcae8d701ed1e6e5f2495e29bfcfadc2577a38230de27824a22ec18c798cbe6829144c5c9aef"),
+		Uuid:      _byte("0x00000000000000000000000000000000"),
+	},
+}
+
+var distributedAccountOverlapping = DistributedAccountRegistry{
+	"Interop 0": distributed0,
+	"Extra Distributed Deduped by Composite Public Key": {
+		Name:      "Extra Distributed Deduped by Composite Public Key",
+		PublicKey: _byte("0x8695d953c289c41a3a1067fc2baab8f36b9390c1b1148fec4814d693e24e56bf8c25fbe947baf26d81c965c2804d1e61"),
+		// Same as allDistributedAccounts["Interop 2"].CompositePublicKey
+		CompositePublicKey: _byte("0xb75f33e5bd36841eb79f5018ad9f48494ddcc5b71bb671a59effdd2a139f8be18287df69bc028ce9b21e57d37bea5ffa"),
+		SigningThreshold:   3,
+		Participants:       []*pb.Endpoint{},
+	},
+	"Unseen Distributed": {
+		Name:      "Unseen Distributed",
+		PublicKey: _byte("0x80d206fbd30fd175f482b0b6e36da30ce66f6d31a5748da4d64925273873c16de1066c104512dcecac9e458a9540de6d"),
+		// Unique
+		CompositePublicKey: _byte("0xb3dc4efd216af7836942b0f84692e56bba286241295b7a3f37db261d42d9f2d2179c0847b15cb8009c83f2c9abc54172"),
+		SigningThreshold:   3,
+		Participants:       []*pb.Endpoint{},
+	},
+}
+
+// ListAccounts returns static accounts.
+func (s *MockListerServerOverlappingAccounts) ListAccounts(_ context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
+	s.mutex.Lock()
+	defer func() {
+		s.RequestsReceived++
+		s.mutex.Unlock()
+	}()
+
+	registry := interopAccounts
+	distributedRegistry := allDistributedAccounts
+	if s.RequestsReceived%2 == 0 {
+		registry = interopAccountOverlapping
+		distributedRegistry = distributedAccountOverlapping
 	}
 
-	accounts := make([]*pb.Account, 0)
-	for _, account := range interopAccounts {
-		if len(in.GetPaths()) == 0 {
-			accounts = append(accounts, account)
-		} else {
-			for _, path := range in.GetPaths() {
-				if !strings.Contains(path, "/") {
-					// Wallet only.
-					accounts = append(accounts, account)
-					break
-				}
-				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
-					accounts = append(accounts, account)
-					break
-				}
-			}
-		}
-	}
-
-	distributedAccounts := make([]*pb.DistributedAccount, 0)
-	for _, account := range allDistributedAccounts {
-		if len(in.GetPaths()) == 0 {
-			distributedAccounts = append(distributedAccounts, account)
-		} else {
-			for _, path := range in.GetPaths() {
-				if !strings.Contains(path, "/") {
-					// Wallet only.
-					distributedAccounts = append(distributedAccounts, account)
-					break
-				}
-				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
-					distributedAccounts = append(distributedAccounts, account)
-					break
-				}
-			}
-		}
-	}
+	accounts := registry.GetAccounts(in)
+	distributedAccounts := distributedRegistry.GetDistributedAccounts(in)
 
 	return &pb.ListAccountsResponse{
 		State:               pb.ResponseState_SUCCEEDED,

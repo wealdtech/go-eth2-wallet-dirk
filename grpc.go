@@ -18,6 +18,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"runtime"
@@ -102,74 +103,162 @@ func (w *wallet) List(ctx context.Context, accountPath string) ([]e2wtypes.Accou
 		return nil, errors.New("wallet has no endpoints")
 	}
 
-	var resp *pb.ListAccountsResponse
-	var err error
-	ctx, cancelFunc := context.WithTimeout(ctx, w.timeout)
-	defer cancelFunc()
+	var wg sync.WaitGroup
+	var errsWaitGroup sync.WaitGroup
+	errs := make([]error, 0)
+	errChan := make(chan error)
+
+	// add a tick to the wait group to ensure errs is populated after
+	// wg.Wait() and errsWaitGroup.Wait() are called.
+	errsWaitGroup.Add(1)
+	go func(errChan chan error) {
+		defer errsWaitGroup.Done()
+		for err := range errChan {
+			errs = append(errs, err)
+		}
+	}(errChan)
+
+	respsMap := new(sync.Map)
 	for i := range len(w.endpoints) {
-		var conn *grpc.ClientConn
-		var release func()
-		conn, release, err = w.connectionProvider.Connection(ctx, w.endpoints[i])
-		if err != nil {
-			w.log.Debug().Stringer("endpoint", w.endpoints[i]).Str("path", path).Err(err).Msg("Failed to obtain connection")
+		wg.Add(1)
+		go func() {
+			var resp *pb.ListAccountsResponse
+			var err error
+
+			i := i
+			defer wg.Done()
+
+			ctx, cancelFunc := context.WithTimeout(ctx, w.timeout)
+			defer cancelFunc()
+
+			var conn *grpc.ClientConn
+			var release func()
+			conn, release, err = w.connectionProvider.Connection(ctx, w.endpoints[i])
+			if err != nil {
+				w.log.Debug().Stringer("endpoint", w.endpoints[i]).Str("path", path).Err(err).Msg("Failed to obtain connection")
+				errChan <- err
+				return
+			}
+
+			listerClient := pb.NewListerClient(conn)
+			req := &pb.ListAccountsRequest{
+				Paths: []string{
+					path,
+				},
+			}
+			resp, err = listerClient.ListAccounts(ctx, req)
+			release()
+			if err != nil {
+				w.log.Debug().Stringer("endpoint", w.endpoints[i]).Str("path", path).Err(err).Msg("Failed to list accounts")
+				errChan <- err
+				return
+			}
+
+			if resp.GetState() != pb.ResponseState_SUCCEEDED {
+				errChan <- errors.New(fmt.Sprintf("request to list wallet accounts returned state %v", resp.GetState()))
+				return
+			}
+
+			respsMap.Store(i, resp)
+		}()
+	}
+	wg.Wait()
+	close(errChan)
+	errsWaitGroup.Wait()
+
+	resps := make([]*pb.ListAccountsResponse, 0, len(w.endpoints))
+	respEndpoints := make([]*Endpoint, 0, len(w.endpoints))
+	for i := range w.endpoints {
+		respAny, ok := respsMap.Load(i)
+		if !ok {
 			continue
 		}
 
-		listerClient := pb.NewListerClient(conn)
-		req := &pb.ListAccountsRequest{
-			Paths: []string{
-				path,
-			},
+		resp := respAny.(*pb.ListAccountsResponse)
+		resps = append(resps, resp)
+		respEndpoints = append(respEndpoints, w.endpoints[i])
+	}
+
+	if len(resps) == 0 {
+		if len(errs) == 0 {
+			return nil, errors.New("internal error: no responses and no errors from endpoints")
 		}
-		resp, err = listerClient.ListAccounts(ctx, req)
-		release()
-		if err == nil {
-			// Success.
-			break
+		// Wrap the errors in a single error.
+		wrappedErr := errs[0]
+		for _, err := range errs[1:] {
+			wrappedErr = errors.Wrap(wrappedErr, err.Error())
 		}
-		w.log.Debug().Stringer("endpoint", w.endpoints[i]).Str("path", path).Err(err).Msg("Failed to list accounts")
+		return nil, errors.Wrap(wrappedErr, "failed to access dirk")
 	}
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to access dirk")
-	}
-	if resp.GetState() != pb.ResponseState_SUCCEEDED {
-		return nil, fmt.Errorf("request to list wallet accounts returned state %v", resp.GetState())
-	}
+
 	span.AddEvent("Obtained accounts")
 
 	// sem := semaphore.NewWeighted(int64(runtime.GOMAXPROCS(0)))
-	var wg sync.WaitGroup
+	distributedAccountsMap := make(map[[48]byte]bool)
+	regularAccountsMap := make(map[[48]byte]bool)
 	accounts := make([]e2wtypes.Account, 0)
 	var accountsMu sync.Mutex
-	for _, respAccount := range resp.GetAccounts() {
-		wg.Add(1)
-		go func(respAccount *pb.Account, wg *sync.WaitGroup, mu *sync.Mutex) {
-			defer wg.Done()
 
-			account, err := w.obtainAccount(respAccount)
-			if err != nil {
-				w.log.Error().Err(err).Msg("Failed to obtain account")
-			}
+	for respIdx, resp := range resps {
+		endpoint := respEndpoints[respIdx]
+		for _, respAccount := range resp.GetAccounts() {
+			wg.Add(1)
+			go func(respAccount *pb.Account, endpoint *Endpoint, wg *sync.WaitGroup, mu *sync.Mutex) {
+				defer wg.Done()
 
-			mu.Lock()
-			accounts = append(accounts, account)
-			mu.Unlock()
-		}(respAccount, &wg, &accountsMu)
-	}
-	for _, respAccount := range resp.GetDistributedAccounts() {
-		wg.Add(1)
-		go func(respAccount *pb.DistributedAccount, wg *sync.WaitGroup, mu *sync.Mutex) {
-			defer wg.Done()
+				account, err := w.obtainAccount(respAccount, endpoint)
+				if err != nil {
+					w.log.Error().Err(err).Msg("Failed to obtain account")
+				}
 
-			account, err := w.obtainDistributedAccount(respAccount)
-			if err != nil {
-				w.log.Error().Err(err).Msg("Failed to obtain distributed account")
-			}
+				var pubkey [48]byte
+				copy(pubkey[:], respAccount.GetPublicKey())
 
-			mu.Lock()
-			accounts = append(accounts, account)
-			mu.Unlock()
-		}(respAccount, &wg, &accountsMu)
+				mu.Lock()
+				defer mu.Unlock()
+				_, ok := regularAccountsMap[pubkey]
+				if ok {
+					w.log.Warn().Str("account", respAccount.GetName()).Str("pubkey", hex.EncodeToString(pubkey[:])).Msg("Duplicate pubkey found, ignoring")
+					return
+				}
+				regularAccountsMap[pubkey] = true
+				accounts = append(accounts, account)
+			}(respAccount, endpoint, &wg, &accountsMu)
+		}
+		for _, respAccount := range resp.GetDistributedAccounts() {
+			wg.Add(1)
+			go func(respAccount *pb.DistributedAccount, endpoint *Endpoint, wg *sync.WaitGroup, mu *sync.Mutex) {
+				defer wg.Done()
+
+				account, err := w.obtainDistributedAccount(respAccount, endpoint)
+				if err != nil {
+					w.log.Error().Err(err).Msg("Failed to obtain distributed account")
+				}
+
+				var pubkey [48]byte
+				copy(pubkey[:], respAccount.GetPublicKey())
+				var compositePubKey [48]byte
+				copy(compositePubKey[:], respAccount.GetCompositePublicKey())
+
+				mu.Lock()
+				defer mu.Unlock()
+				_, ok := distributedAccountsMap[pubkey]
+				if ok {
+					// It's not normal to find duplicate distributed public keys.
+					w.log.Warn().Str("account", respAccount.GetName()).Str("pubkey", hex.EncodeToString(pubkey[:])).Msg("Duplicate distributed pubkey found, ignoring")
+					return
+				}
+				distributedAccountsMap[pubkey] = true
+				_, ok = distributedAccountsMap[compositePubKey]
+				if ok {
+					// It's normal to find duplicate composite public keys.
+					// It just means we've already tracked the account.
+					return
+				}
+				distributedAccountsMap[compositePubKey] = true
+				accounts = append(accounts, account)
+			}(respAccount, endpoint, &wg, &accountsMu)
+		}
 	}
 	wg.Wait()
 	span.AddEvent("Processed accounts")
@@ -1625,17 +1714,21 @@ func blsID(id uint64) *bls.ID {
 	return &res
 }
 
-func (w *wallet) obtainAccount(respAccount *pb.Account) (
+func (w *wallet) obtainAccount(respAccount *pb.Account, endpoint *Endpoint) (
 	e2wtypes.Account,
 	error,
 ) {
 	var key [48]byte
 	copy(key[:], respAccount.GetPublicKey())
 	w.accountMapMu.RLock()
-	account, exists := w.accountMap[key]
+	cachedAccount, exists := w.accountMap[key]
 	w.accountMapMu.RUnlock()
 	if exists {
-		return account, nil
+		// Ensure endpoint is set even for cached accounts
+		if acc, ok := cachedAccount.(*account); ok {
+			acc.endpoint = endpoint
+		}
+		return cachedAccount, nil
 	}
 
 	pubKey, err := e2types.BLSPublicKeyFromBytes(respAccount.GetPublicKey())
@@ -1657,26 +1750,31 @@ func (w *wallet) obtainAccount(respAccount *pb.Account) (
 		name = respAccount.GetName()
 	}
 
-	account = newAccount(w, uuid, name, pubKey, 1)
+	acc := newAccount(w, uuid, name, pubKey, 1)
+	acc.endpoint = endpoint
 
 	w.accountMapMu.Lock()
-	w.accountMap[key] = account
+	w.accountMap[key] = acc
 	w.accountMapMu.Unlock()
 
-	return account, nil
+	return acc, nil
 }
 
-func (w *wallet) obtainDistributedAccount(respAccount *pb.DistributedAccount) (
+func (w *wallet) obtainDistributedAccount(respAccount *pb.DistributedAccount, endpoint *Endpoint) (
 	e2wtypes.Account,
 	error,
 ) {
 	var key [48]byte
 	copy(key[:], respAccount.GetPublicKey())
 	w.accountMapMu.RLock()
-	account, exists := w.accountMap[key]
+	cachedAccount, exists := w.accountMap[key]
 	w.accountMapMu.RUnlock()
 	if exists {
-		return account, nil
+		// Ensure endpoint is set even for cached accounts
+		if acc, ok := cachedAccount.(*distributedAccount); ok {
+			acc.endpoint = endpoint
+		}
+		return cachedAccount, nil
 	}
 
 	pubKey, err := e2types.BLSPublicKeyFromBytes(respAccount.GetPublicKey())
@@ -1709,11 +1807,12 @@ func (w *wallet) obtainDistributedAccount(respAccount *pb.DistributedAccount) (
 		}
 	}
 
-	account = newDistributedAccount(w, uuid, name, pubKey, compositePubKey, respAccount.GetSigningThreshold(), participants, 1)
+	acc := newDistributedAccount(w, uuid, name, pubKey, compositePubKey, respAccount.GetSigningThreshold(), participants, 1)
+	acc.endpoint = endpoint
 
 	w.accountMapMu.Lock()
-	w.accountMap[key] = account
+	w.accountMap[key] = acc
 	w.accountMapMu.Unlock()
 
-	return account, nil
+	return acc, nil
 }

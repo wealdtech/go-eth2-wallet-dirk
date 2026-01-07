@@ -93,7 +93,7 @@ func TestListDenyingServer(t *testing.T) {
 	require.NoError(t, err)
 	w.(*wallet).SetConnectionProvider(connectionProvider)
 	_, err = w.(*wallet).List(ctx, "")
-	require.EqualError(t, err, "request to list wallet accounts returned state DENIED")
+	require.EqualError(t, err, "failed to access dirk: request to list wallet accounts returned state DENIED")
 }
 
 func TestList(t *testing.T) {

@@ -24,12 +24,13 @@ import (
 )
 
 type account struct {
-	wallet  *wallet
-	id      uuid.UUID
-	name    string
-	pubKey  e2types.PublicKey
-	version uint
-	mutex   *sync.RWMutex
+	wallet   *wallet
+	id       uuid.UUID
+	name     string
+	pubKey   e2types.PublicKey
+	version  uint
+	mutex    *sync.RWMutex
+	endpoint *Endpoint
 }
 
 func newAccount(wallet *wallet,
