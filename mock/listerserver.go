@@ -322,3 +322,39 @@ func (s *MockListerServerOverlappingAccounts) ListAccounts(_ context.Context, in
 		DistributedAccounts: distributedAccounts,
 	}, nil
 }
+
+// CustomListerServer returns accounts specific to an endpoint.
+type CustomListerServer struct {
+	pb.UnimplementedListerServer
+
+	Accounts []*pb.Account
+}
+
+func (s *CustomListerServer) ListAccounts(_ context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
+	// Filter accounts based on the request
+	var filteredAccounts []*pb.Account
+
+	for _, account := range s.Accounts {
+		if len(in.GetPaths()) == 0 {
+			filteredAccounts = append(filteredAccounts, account)
+		} else {
+			for _, path := range in.GetPaths() {
+				if !strings.Contains(path, "/") {
+					filteredAccounts = append(filteredAccounts, account)
+					break
+				}
+
+				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
+					filteredAccounts = append(filteredAccounts, account)
+					break
+				}
+			}
+		}
+	}
+
+	return &pb.ListAccountsResponse{
+		State:               pb.ResponseState_SUCCEEDED,
+		Accounts:            filteredAccounts,
+		DistributedAccounts: nil,
+	}, nil
+}
