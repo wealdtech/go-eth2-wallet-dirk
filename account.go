@@ -85,6 +85,7 @@ func (a *account) Unlock(ctx context.Context, passphrase []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "failed attempt to unlock account")
 	}
+
 	if !unlocked {
 		return errors.New("unlock attempt failed")
 	}

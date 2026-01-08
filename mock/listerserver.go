@@ -24,11 +24,14 @@ import (
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 )
 
-type InteropAccountRegistry map[string]*pb.Account
-type DistributedAccountRegistry map[string]*pb.DistributedAccount
+type (
+	InteropAccountRegistry     map[string]*pb.Account
+	DistributedAccountRegistry map[string]*pb.DistributedAccount
+)
 
 func (r InteropAccountRegistry) GetAccounts(in *pb.ListAccountsRequest) []*pb.Account {
 	accounts := make([]*pb.Account, 0)
+
 	for _, account := range r {
 		if len(in.GetPaths()) == 0 {
 			accounts = append(accounts, account)
@@ -38,6 +41,7 @@ func (r InteropAccountRegistry) GetAccounts(in *pb.ListAccountsRequest) []*pb.Ac
 					accounts = append(accounts, account)
 					break
 				}
+
 				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
 					accounts = append(accounts, account)
 					break
@@ -45,11 +49,13 @@ func (r InteropAccountRegistry) GetAccounts(in *pb.ListAccountsRequest) []*pb.Ac
 			}
 		}
 	}
+
 	return accounts
 }
 
 func (r DistributedAccountRegistry) GetDistributedAccounts(in *pb.ListAccountsRequest) []*pb.DistributedAccount {
 	distributedAccounts := make([]*pb.DistributedAccount, 0)
+
 	for _, account := range r {
 		if len(in.GetPaths()) == 0 {
 			distributedAccounts = append(distributedAccounts, account)
@@ -59,6 +65,7 @@ func (r DistributedAccountRegistry) GetDistributedAccounts(in *pb.ListAccountsRe
 					distributedAccounts = append(distributedAccounts, account)
 					break
 				}
+
 				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
 					distributedAccounts = append(distributedAccounts, account)
 					break
@@ -66,6 +73,7 @@ func (r DistributedAccountRegistry) GetDistributedAccounts(in *pb.ListAccountsRe
 			}
 		}
 	}
+
 	return distributedAccounts
 }
 
@@ -253,10 +261,10 @@ func (s *MockListerServer) ListAccounts(_ context.Context, in *pb.ListAccountsRe
 }
 
 type MockListerServerOverlappingAccounts struct {
+	pb.UnimplementedListerServer
+
 	mutex            sync.Mutex
 	RequestsReceived int
-
-	pb.UnimplementedListerServer
 }
 
 var interopAccountOverlapping = InteropAccountRegistry{
@@ -291,6 +299,7 @@ var distributedAccountOverlapping = DistributedAccountRegistry{
 // ListAccounts returns static accounts.
 func (s *MockListerServerOverlappingAccounts) ListAccounts(_ context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
 	s.mutex.Lock()
+
 	defer func() {
 		s.RequestsReceived++
 		s.mutex.Unlock()
@@ -298,6 +307,7 @@ func (s *MockListerServerOverlappingAccounts) ListAccounts(_ context.Context, in
 
 	registry := interopAccounts
 	distributedRegistry := allDistributedAccounts
+
 	if s.RequestsReceived%2 == 0 {
 		registry = interopAccountOverlapping
 		distributedRegistry = distributedAccountOverlapping

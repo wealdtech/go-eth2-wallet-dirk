@@ -118,6 +118,7 @@ func (a *distributedAccount) Unlock(ctx context.Context, passphrase []byte) erro
 	if err != nil {
 		return errors.Wrap(err, "failed attempt to unlock account")
 	}
+
 	if !unlocked {
 		return errors.New("unlock attempt failed")
 	}

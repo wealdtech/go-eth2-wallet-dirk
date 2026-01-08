@@ -99,6 +99,7 @@ func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 		poolConnections: 128,
 		monitor:         &nullMetrics{},
 	}
+
 	for _, p := range params {
 		if params != nil {
 			p.apply(&parameters)
@@ -108,18 +109,23 @@ func parseAndCheckParameters(params ...Parameter) (*parameters, error) {
 	if parameters.monitor == nil {
 		return nil, errors.New("no monitor specified")
 	}
+
 	if parameters.timeout == 0 {
 		return nil, errors.New("no timeout specified")
 	}
+
 	if parameters.name == "" {
 		return nil, errors.New("no name specified")
 	}
+
 	if parameters.credentials == nil {
 		return nil, errors.New("no credentials specified")
 	}
+
 	if len(parameters.endpoints) == 0 {
 		return nil, errors.New("no endpoints specified")
 	}
+
 	if parameters.poolConnections < 1 {
 		return nil, errors.New("no pool connections specified")
 	}
