@@ -61,7 +61,7 @@ type BufConnectionProvider struct {
 	servers       map[string]*grpc.Server
 	listeners     map[string]*bufconn.Listener
 	listerServers []pb.ListerServer
-	signerServer  pb.SignerServer
+	signerServers map[int]pb.SignerServer
 }
 
 const bufSize = 1024 * 1024
@@ -82,9 +82,27 @@ func NewBufConnectionProviderWithSigner(_ context.Context,
 	listerServers []pb.ListerServer,
 	signerServer pb.SignerServer,
 ) (*BufConnectionProvider, error) {
+	signerServers := make(map[int]pb.SignerServer)
+	// If only one signer server provided, use it for all ports
+	for i := range listerServers {
+		signerServers[i] = signerServer
+	}
 	return &BufConnectionProvider{
 		listerServers: listerServers,
-		signerServer:  signerServer,
+		signerServers: signerServers,
+		servers:       make(map[string]*grpc.Server),
+		listeners:     make(map[string]*bufconn.Listener),
+	}, nil
+}
+
+// NewBufConnectionProviderWithSigners creates a new buffer connection provider with different signer servers for different endpoints.
+func NewBufConnectionProviderWithSigners(_ context.Context,
+	listerServers []pb.ListerServer,
+	signerServers map[int]pb.SignerServer,
+) (*BufConnectionProvider, error) {
+	return &BufConnectionProvider{
+		listerServers: listerServers,
+		signerServers: signerServers,
 		servers:       make(map[string]*grpc.Server),
 		listeners:     make(map[string]*bufconn.Listener),
 	}, nil
@@ -105,8 +123,10 @@ func (c *BufConnectionProvider) Connection(ctx context.Context, endpoint *Endpoi
 			// Pick a server from the available list.
 			pb.RegisterListerServer(server, c.listerServers[int(endpoint.port)%len(c.listerServers)])
 		}
-		if c.signerServer != nil {
-			pb.RegisterSignerServer(server, c.signerServer)
+		if c.signerServers != nil {
+			if signerServer, exists := c.signerServers[int(endpoint.port)%len(c.listerServers)]; exists && signerServer != nil {
+				pb.RegisterSignerServer(server, signerServer)
+			}
 		}
 		c.servers[serverAddress] = server
 		listener := bufconn.Listen(bufSize)
@@ -199,8 +219,11 @@ func TestAccountUsesCorrectEndpointForSigning(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
 
-	// Create mock signer server to track signing calls
-	mockSigner := &mock.MockSignerServer{}
+	// Create separate mock signer servers for each endpoint with account restrictions
+	// endpoint1Signer (index 1) only accepts "Account Endpoint1"
+	endpoint1Signer := mock.NewMockSignerServerWithAccounts([]string{"Account Endpoint1"})
+	// endpoint2Signer (index 0) accepts both "Account Endpoint1" and "Account Endpoint2"
+	endpoint2Signer := mock.NewMockSignerServerWithAccounts([]string{"Account Endpoint1", "Account Endpoint2"})
 
 	// Create custom lister servers that return different accounts for different endpoints
 	// endpoint1Server returns one unique account
@@ -230,7 +253,10 @@ func TestAccountUsesCorrectEndpointForSigning(t *testing.T) {
 		},
 	}
 
-	connectionProvider, err := NewBufConnectionProviderWithSigner(ctx, []pb.ListerServer{endpoint2Server, endpoint1Server}, mockSigner)
+	connectionProvider, err := NewBufConnectionProviderWithSigners(ctx, []pb.ListerServer{endpoint2Server, endpoint1Server}, map[int]pb.SignerServer{
+		0: endpoint2Signer, // port % 2 == 0 uses endpoint2Signer
+		1: endpoint1Signer, // port % 2 == 1 uses endpoint1Signer
+	})
 	require.NoError(t, err)
 
 	// Set up wallet with multiple endpoints
@@ -300,11 +326,25 @@ func TestAccountUsesCorrectEndpointForSigning(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	// Verify that the signer server was called with both accounts
-	endpointsUsed := mockSigner.GetEndpointsUsed()
-	require.Len(t, endpointsUsed, 2, "Signer server should have been called for both accounts")
-	require.Contains(t, endpointsUsed, "Test wallet/Account Endpoint1", "Should have signed with shared account")
-	require.Contains(t, endpointsUsed, "Test wallet/Account Endpoint2", "Should have signed with account from endpoint 2")
+	// Verify that the correct signer servers were called with the correct accounts
+	endpoint1Used := endpoint1Signer.GetEndpointsUsed()
+	endpoint2Used := endpoint2Signer.GetEndpointsUsed()
+
+	// "Account Endpoint1" should be signed by whichever endpoint it was assigned to
+	// "Account Endpoint2" should only be signed by endpoint2Signer (port 12346)
+	if endpointByAccount["Account Endpoint1"].port == 12345 {
+		// Account Endpoint1 assigned to endpoint1 (port 12345)
+		require.Len(t, endpoint1Used, 1, "endpoint1Signer should have been called once for Account Endpoint1")
+		require.Contains(t, endpoint1Used, "Test wallet/Account Endpoint1", "endpoint1Signer should have signed Account Endpoint1")
+		require.Len(t, endpoint2Used, 1, "endpoint2Signer should have been called once for Account Endpoint2")
+		require.Contains(t, endpoint2Used, "Test wallet/Account Endpoint2", "endpoint2Signer should have signed Account Endpoint2")
+	} else {
+		// Account Endpoint1 assigned to endpoint2 (port 12346)
+		require.Len(t, endpoint1Used, 0, "endpoint1Signer should not have been called")
+		require.Len(t, endpoint2Used, 2, "endpoint2Signer should have been called twice")
+		require.Contains(t, endpoint2Used, "Test wallet/Account Endpoint1", "endpoint2Signer should have signed Account Endpoint1")
+		require.Contains(t, endpoint2Used, "Test wallet/Account Endpoint2", "endpoint2Signer should have signed Account Endpoint2")
+	}
 
 	// Verify that signing works with whatever endpoint the shared account got assigned to
 	// This demonstrates that endpoint reassignment works correctly and accounts use their assigned endpoint for signing

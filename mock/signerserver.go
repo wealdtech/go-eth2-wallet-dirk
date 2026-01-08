@@ -16,6 +16,8 @@ package dirk
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
@@ -25,15 +27,51 @@ import (
 type MockSignerServer struct {
 	pb.UnimplementedSignerServer
 
-	endpointsUsed []string
-	mutex         sync.Mutex
+	endpointsUsed   []string
+	mutex           sync.Mutex
+	allowedAccounts map[string]bool // set of allowed account names (without wallet prefix)
+}
+
+// NewMockSignerServer creates a new mock signer server.
+func NewMockSignerServer() *MockSignerServer {
+	return &MockSignerServer{
+		endpointsUsed:   make([]string, 0),
+		allowedAccounts: make(map[string]bool),
+	}
+}
+
+// NewMockSignerServerWithAccounts creates a new mock signer server that only accepts specific accounts.
+func NewMockSignerServerWithAccounts(allowedAccounts []string) *MockSignerServer {
+	server := NewMockSignerServer()
+	for _, account := range allowedAccounts {
+		server.allowedAccounts[account] = true
+	}
+
+	return server
 }
 
 func (s *MockSignerServer) Sign(_ context.Context, req *pb.SignRequest) (*pb.SignResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	// Extract account info from the request
+	// Extract account name from path (remove wallet prefix)
+	accountPath := req.GetAccount()
+	// Account paths are like "Test wallet/Account Endpoint1", we want just "Account Endpoint1"
+	var accountName string
+	if lastSlash := strings.LastIndex(accountPath, "/"); lastSlash >= 0 {
+		accountName = accountPath[lastSlash+1:]
+	} else {
+		accountName = accountPath
+	}
+
+	// Check if this account is allowed on this signer server
+	if len(s.allowedAccounts) > 0 && !s.allowedAccounts[accountName] {
+		return &pb.SignResponse{
+			State: pb.ResponseState_FAILED,
+		}, fmt.Errorf("account %s not available on this endpoint", accountName)
+	}
+
+	// Record the signing request
 	s.endpointsUsed = append(s.endpointsUsed, req.GetAccount())
 
 	return &pb.SignResponse{
