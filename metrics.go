@@ -34,10 +34,12 @@ func registerMetrics(ctx context.Context, monitor Metrics) error {
 		// Already registered.
 		return nil
 	}
+
 	if monitor == nil {
 		// No monitor.
 		return nil
 	}
+
 	if monitor.Presenter() == "prometheus" {
 		return registerPrometheusMetrics(ctx)
 	}

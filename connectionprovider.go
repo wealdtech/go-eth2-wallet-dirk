@@ -58,8 +58,11 @@ func (c *PuddleConnectionProvider) Connection(ctx context.Context, endpoint *End
 
 func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Pool[*grpc.ClientConn] {
 	connectionPoolsMu.RLock()
+
 	pool, exists := connectionPools[address]
+
 	connectionPoolsMu.RUnlock()
+
 	if !exists {
 		constructor := func(_ context.Context) (*grpc.ClientConn, error) {
 			conn, err := grpc.NewClient(address, []grpc.DialOption{
@@ -77,6 +80,7 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 			if err != nil {
 				return nil, errors.Wrap(err, "failed to construct connection")
 			}
+
 			incConnections(address)
 
 			return conn, nil
@@ -92,8 +96,11 @@ func (c *PuddleConnectionProvider) obtainOrCreatePool(address string) *puddle.Po
 			Destructor:  destructor,
 			MaxSize:     c.poolConnections,
 		})
+
 		connectionPoolsMu.Lock()
+
 		connectionPools[address] = pool
+
 		connectionPoolsMu.Unlock()
 	}
 

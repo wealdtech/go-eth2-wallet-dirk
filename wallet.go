@@ -81,6 +81,7 @@ func Open(ctx context.Context,
 	wallet.name = parameters.name
 	wallet.timeout = parameters.timeout
 	wallet.endpoints = make([]*Endpoint, len(parameters.endpoints))
+
 	wallet.connectionProvider = &PuddleConnectionProvider{
 		name:            parameters.name,
 		poolConnections: parameters.poolConnections,
@@ -92,6 +93,7 @@ func Open(ctx context.Context,
 			port: parameters.endpoints[i].port,
 		}
 	}
+
 	wallet.log.Trace().Str("name", wallet.name).Msg("Opened wallet")
 
 	return wallet, nil
@@ -103,6 +105,7 @@ func OpenWallet(_ context.Context, name string, credentials credentials.Transpor
 	wallet := newWallet()
 	wallet.name = name
 	wallet.endpoints = make([]*Endpoint, len(endpoints))
+
 	wallet.connectionProvider = &PuddleConnectionProvider{
 		poolConnections: 32,
 		credentials:     credentials.Clone(),
@@ -159,6 +162,7 @@ func (w *wallet) IsUnlocked(_ context.Context) (bool, error) {
 // Accounts provides all accounts in the wallet.
 func (w *wallet) Accounts(ctx context.Context) <-chan e2wtypes.Account {
 	ch := make(chan e2wtypes.Account, 1024)
+
 	go func() {
 		accounts, err := w.List(ctx, "")
 		if err != nil {
@@ -168,6 +172,7 @@ func (w *wallet) Accounts(ctx context.Context) <-chan e2wtypes.Account {
 				ch <- account
 			}
 		}
+
 		close(ch)
 	}()
 
@@ -181,6 +186,7 @@ func (w *wallet) AccountByName(ctx context.Context, name string) (e2wtypes.Accou
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to obtain account")
 	}
+
 	if len(accounts) == 0 {
 		return nil, errors.New("not found")
 	}

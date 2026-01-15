@@ -36,6 +36,7 @@ type distributedAccount struct {
 	participantConns map[uint64]*grpc.ClientConn
 	version          uint
 	mutex            *sync.RWMutex
+	endpoint         *Endpoint
 }
 
 func newDistributedAccount(wallet *wallet,
@@ -117,6 +118,7 @@ func (a *distributedAccount) Unlock(ctx context.Context, passphrase []byte) erro
 	if err != nil {
 		return errors.Wrap(err, "failed attempt to unlock account")
 	}
+
 	if !unlocked {
 		return errors.New("unlock attempt failed")
 	}

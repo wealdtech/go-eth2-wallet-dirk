@@ -24,12 +24,13 @@ import (
 )
 
 type account struct {
-	wallet  *wallet
-	id      uuid.UUID
-	name    string
-	pubKey  e2types.PublicKey
-	version uint
-	mutex   *sync.RWMutex
+	wallet   *wallet
+	id       uuid.UUID
+	name     string
+	pubKey   e2types.PublicKey
+	version  uint
+	mutex    *sync.RWMutex
+	endpoint *Endpoint
 }
 
 func newAccount(wallet *wallet,
@@ -84,6 +85,7 @@ func (a *account) Unlock(ctx context.Context, passphrase []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "failed attempt to unlock account")
 	}
+
 	if !unlocked {
 		return errors.New("unlock attempt failed")
 	}

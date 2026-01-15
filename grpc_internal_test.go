@@ -15,9 +15,11 @@ package dirk
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 
@@ -26,11 +28,17 @@ import (
 	pb "github.com/wealdtech/eth2-signer-api/pb/v1"
 	e2types "github.com/wealdtech/go-eth2-types/v2"
 	mock "github.com/wealdtech/go-eth2-wallet-dirk/mock"
+	e2wtypes "github.com/wealdtech/go-eth2-wallet-types/v2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 )
+
+func _byte(input string) []byte {
+	res, _ := hex.DecodeString(strings.TrimPrefix(input, "0x"))
+	return res
+}
 
 // ErroringConnectionProvider throws errors.
 type ErroringConnectionProvider struct {
@@ -53,6 +61,7 @@ type BufConnectionProvider struct {
 	servers       map[string]*grpc.Server
 	listeners     map[string]*bufconn.Listener
 	listerServers []pb.ListerServer
+	signerServers map[int]pb.SignerServer
 }
 
 const bufSize = 1024 * 1024
@@ -63,6 +72,37 @@ func NewBufConnectionProvider(_ context.Context,
 ) (*BufConnectionProvider, error) {
 	return &BufConnectionProvider{
 		listerServers: listerServers,
+		servers:       make(map[string]*grpc.Server),
+		listeners:     make(map[string]*bufconn.Listener),
+	}, nil
+}
+
+// NewBufConnectionProviderWithSigner creates a new buffer connection provider with signer server support.
+func NewBufConnectionProviderWithSigner(_ context.Context,
+	listerServers []pb.ListerServer,
+	signerServer pb.SignerServer,
+) (*BufConnectionProvider, error) {
+	signerServers := make(map[int]pb.SignerServer)
+	// If only one signer server provided, use it for all ports
+	for i := range listerServers {
+		signerServers[i] = signerServer
+	}
+	return &BufConnectionProvider{
+		listerServers: listerServers,
+		signerServers: signerServers,
+		servers:       make(map[string]*grpc.Server),
+		listeners:     make(map[string]*bufconn.Listener),
+	}, nil
+}
+
+// NewBufConnectionProviderWithSigners creates a new buffer connection provider with different signer servers for different endpoints.
+func NewBufConnectionProviderWithSigners(_ context.Context,
+	listerServers []pb.ListerServer,
+	signerServers map[int]pb.SignerServer,
+) (*BufConnectionProvider, error) {
+	return &BufConnectionProvider{
+		listerServers: listerServers,
+		signerServers: signerServers,
 		servers:       make(map[string]*grpc.Server),
 		listeners:     make(map[string]*bufconn.Listener),
 	}, nil
@@ -83,13 +123,19 @@ func (c *BufConnectionProvider) Connection(ctx context.Context, endpoint *Endpoi
 			// Pick a server from the available list.
 			pb.RegisterListerServer(server, c.listerServers[int(endpoint.port)%len(c.listerServers)])
 		}
+		if c.signerServers != nil {
+			if signerServer, exists := c.signerServers[int(endpoint.port)%len(c.listerServers)]; exists && signerServer != nil {
+				pb.RegisterSignerServer(server, signerServer)
+			}
+		}
 		c.servers[serverAddress] = server
-		c.listeners[serverAddress] = bufconn.Listen(bufSize)
-		go func() {
-			if err := server.Serve(c.listeners[serverAddress]); err != nil {
+		listener := bufconn.Listen(bufSize)
+		c.listeners[serverAddress] = listener
+		go func(listener *bufconn.Listener) {
+			if err := server.Serve(listener); err != nil {
 				log.Fatalf("Buffer server error: %v", err)
 			}
-		}()
+		}(listener)
 	}
 	c.mutex.Unlock()
 
@@ -119,6 +165,39 @@ func TestListGRPC(t *testing.T) {
 	require.Equal(t, 8, accounts)
 }
 
+func TestListGRPCDeduplication(t *testing.T) {
+	require.NoError(t, e2types.InitBLS())
+	ctx := context.Background()
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{&mock.MockListerServer{}})
+	require.NoError(t, err)
+	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}, {host: "localhost", port: 12346}})
+	w.(*wallet).SetConnectionProvider(connectionProvider)
+	require.NoError(t, err)
+	accounts := 0
+	for range w.Accounts(ctx) {
+		accounts++
+	}
+	require.Equal(t, 8, accounts)
+}
+
+func TestListGRPCAccountsFromSecondEndpoint(t *testing.T) {
+	mockListerServer := &mock.MockListerServerOverlappingAccounts{}
+	require.NoError(t, e2types.InitBLS())
+	ctx := context.Background()
+	connectionProvider, err := NewBufConnectionProvider(ctx, []pb.ListerServer{mockListerServer})
+	require.NoError(t, err)
+	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), []*Endpoint{{host: "localhost", port: 12345}, {host: "localhost", port: 12346}})
+	w.(*wallet).SetConnectionProvider(connectionProvider)
+	require.NoError(t, err)
+	accounts := 0
+	for range w.Accounts(ctx) {
+		accounts++
+	}
+	// The usual 8, plus an extra interop account, and an extra distributed account.
+	require.Equal(t, 10, accounts)
+	require.Equal(t, 2, mockListerServer.RequestsReceived)
+}
+
 func TestListGRPCErroring(t *testing.T) {
 	require.NoError(t, e2types.InitBLS())
 	ctx := context.Background()
@@ -132,6 +211,145 @@ func TestListGRPCErroring(t *testing.T) {
 		accounts++
 	}
 	require.Equal(t, 8, accounts)
+}
+
+// TestAccountUsesCorrectEndpointForSigning verifies that accounts use the endpoint
+// that returned their data during the List operation for signing operations
+func TestAccountUsesCorrectEndpointForSigning(t *testing.T) {
+	require.NoError(t, e2types.InitBLS())
+	ctx := context.Background()
+
+	// Create separate mock signer servers for each endpoint with account restrictions
+	// endpoint1Signer (index 1) only accepts "Account Endpoint1"
+	endpoint1Signer := mock.NewMockSignerServerWithAccounts([]string{"Account Endpoint1"})
+	// endpoint2Signer (index 0) accepts both "Account Endpoint1" and "Account Endpoint2"
+	endpoint2Signer := mock.NewMockSignerServerWithAccounts([]string{"Account Endpoint1", "Account Endpoint2"})
+
+	// Create custom lister servers that return different accounts for different endpoints
+	// endpoint1Server returns one unique account
+	endpoint1Server := &mock.CustomListerServer{
+		Accounts: []*pb.Account{
+			{
+				Name:      "Account Endpoint1",
+				PublicKey: _byte("0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c"),
+				Uuid:      _byte("0x00000000000000000000000000000001"),
+			},
+		},
+	}
+
+	// endpoint2Server returns one unique account and one shared account (same as endpoint1)
+	endpoint2Server := &mock.CustomListerServer{
+		Accounts: []*pb.Account{
+			{
+				Name:      "Account Endpoint1", // Same account as endpoint1
+				PublicKey: _byte("0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c"),
+				Uuid:      _byte("0x00000000000000000000000000000001"),
+			},
+			{
+				Name:      "Account Endpoint2",
+				PublicKey: _byte("0xb89bebc699769726a318c8e9971bd3171297c61aea4a6578a7a4f94b547dcba5bac16a89108b6b6a1fe3695d1a874a0b"),
+				Uuid:      _byte("0x00000000000000000000000000000002"),
+			},
+		},
+	}
+
+	connectionProvider, err := NewBufConnectionProviderWithSigners(ctx, []pb.ListerServer{endpoint2Server, endpoint1Server}, map[int]pb.SignerServer{
+		0: endpoint2Signer, // port % 2 == 0 uses endpoint2Signer
+		1: endpoint1Signer, // port % 2 == 1 uses endpoint1Signer
+	})
+	require.NoError(t, err)
+
+	// Set up wallet with multiple endpoints
+	endpoints := []*Endpoint{
+
+		{host: "localhost", port: 12345}, // Will use endpoint1Server (port % 2 = 1)
+		{host: "localhost", port: 12346}, // Will use endpoint2Server (port % 2 = 0)
+	}
+
+	w, err := OpenWallet(ctx, "Test wallet", credentials.NewTLS(nil), endpoints)
+	w.(*wallet).SetConnectionProvider(connectionProvider)
+	require.NoError(t, err)
+
+	// List accounts - this should assign endpoints to accounts based on which endpoint returned them
+	accounts, err := w.(*wallet).List(ctx, "")
+	require.NoError(t, err)
+
+	require.Equal(t, 2, len(accounts), "Should have 2 unique accounts (shared account not duplicated)")
+
+	// Create a map to track accounts by endpoint
+	accountsByEndpoint := make(map[string][]e2wtypes.Account)
+	endpointByAccount := make(map[string]*Endpoint)
+
+	for _, acct := range accounts {
+		var accountEndpoint *Endpoint
+		if acc, ok := acct.(*account); ok {
+			accountEndpoint = acc.endpoint
+		}
+
+		require.NotNil(t, accountEndpoint, "Account should have an endpoint assigned")
+
+		endpointKey := fmt.Sprintf("%s:%d", accountEndpoint.host, accountEndpoint.port)
+		accountsByEndpoint[endpointKey] = append(accountsByEndpoint[endpointKey], acct)
+		endpointByAccount[acct.Name()] = accountEndpoint
+	}
+
+	// Verify that the shared account "Account Endpoint1" is assigned to one of the endpoints that returned it
+	sharedAccountEndpoint := fmt.Sprintf("%s:%d", endpointByAccount["Account Endpoint1"].host, endpointByAccount["Account Endpoint1"].port)
+	require.True(t, sharedAccountEndpoint == "localhost:12345" || sharedAccountEndpoint == "localhost:12346",
+		"Shared account should be assigned to one of the endpoints that returned it, got: %s", sharedAccountEndpoint)
+
+	// Verify that Account Endpoint2 is assigned to endpoint 12346 (only endpoint that returns it)
+	require.Equal(t, "localhost:12346", fmt.Sprintf("%s:%d", endpointByAccount["Account Endpoint2"].host, endpointByAccount["Account Endpoint2"].port))
+
+	// Verify that we have exactly 2 accounts total (no duplication of the shared account)
+	require.Equal(t, 2, len(accounts), "Should have exactly 2 unique accounts")
+
+	// The endpoint distribution depends on which goroutine finished last
+	// But we should have accounts assigned to their endpoints
+	totalAccountsAssigned := 0
+	for _, accountsOnEndpoint := range accountsByEndpoint {
+		totalAccountsAssigned += len(accountsOnEndpoint)
+	}
+	require.Equal(t, 2, totalAccountsAssigned, "All accounts should be assigned to endpoints")
+
+	// Test signing with both accounts to verify they use their assigned endpoints
+	for _, acct := range accounts {
+		// Sign with the account - this should use the endpoint assigned during List operation
+		_, err := acct.(e2wtypes.AccountProtectingSigner).SignGeneric(ctx,
+			[]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+			[]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+		)
+
+		// The signing should have succeeded (no error)
+		require.NoError(t, err)
+	}
+
+	// Verify that the correct signer servers were called with the correct accounts
+	endpoint1Used := endpoint1Signer.GetEndpointsUsed()
+	endpoint2Used := endpoint2Signer.GetEndpointsUsed()
+
+	// "Account Endpoint1" should be signed by whichever endpoint it was assigned to
+	// "Account Endpoint2" should only be signed by endpoint2Signer (port 12346)
+	if endpointByAccount["Account Endpoint1"].port == 12345 {
+		// Account Endpoint1 assigned to endpoint1 (port 12345)
+		require.Len(t, endpoint1Used, 1, "endpoint1Signer should have been called once for Account Endpoint1")
+		require.Contains(t, endpoint1Used, "Test wallet/Account Endpoint1", "endpoint1Signer should have signed Account Endpoint1")
+		require.Len(t, endpoint2Used, 1, "endpoint2Signer should have been called once for Account Endpoint2")
+		require.Contains(t, endpoint2Used, "Test wallet/Account Endpoint2", "endpoint2Signer should have signed Account Endpoint2")
+	} else {
+		// Account Endpoint1 assigned to endpoint2 (port 12346)
+		require.Len(t, endpoint1Used, 0, "endpoint1Signer should not have been called")
+		require.Len(t, endpoint2Used, 2, "endpoint2Signer should have been called twice")
+		require.Contains(t, endpoint2Used, "Test wallet/Account Endpoint1", "endpoint2Signer should have signed Account Endpoint1")
+		require.Contains(t, endpoint2Used, "Test wallet/Account Endpoint2", "endpoint2Signer should have signed Account Endpoint2")
+	}
+
+	// Verify that signing works with whatever endpoint the shared account got assigned to
+	// This demonstrates that endpoint reassignment works correctly and accounts use their assigned endpoint for signing
+	t.Logf("Shared account 'Account Endpoint1' was assigned to endpoint: %s:%d",
+		endpointByAccount["Account Endpoint1"].host, endpointByAccount["Account Endpoint1"].port)
 }
 
 // Disabled because it results in a link back to Dirk repository for
