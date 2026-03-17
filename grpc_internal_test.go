@@ -283,7 +283,7 @@ func TestAccountUsesCorrectEndpointForSigning(t *testing.T) {
 	for _, acct := range accounts {
 		var accountEndpoint *Endpoint
 		if acc, ok := acct.(*account); ok {
-			accountEndpoint = acc.endpoint
+			accountEndpoint = acc.Endpoint()
 		}
 
 		require.NotNil(t, accountEndpoint, "Account should have an endpoint assigned")
@@ -350,6 +350,80 @@ func TestAccountUsesCorrectEndpointForSigning(t *testing.T) {
 	// This demonstrates that endpoint reassignment works correctly and accounts use their assigned endpoint for signing
 	t.Logf("Shared account 'Account Endpoint1' was assigned to endpoint: %s:%d",
 		endpointByAccount["Account Endpoint1"].host, endpointByAccount["Account Endpoint1"].port)
+}
+
+// TestAccountEndpointConcurrentAccess verifies that concurrent calls to
+// obtainAccount for the same cached account do not race on the endpoint field.
+func TestAccountEndpointConcurrentAccess(t *testing.T) {
+	require.NoError(t, e2types.InitBLS())
+
+	w := &wallet{
+		endpoints:  []*Endpoint{{host: "localhost", port: 12345}},
+		accountMap: make(map[[48]byte]e2wtypes.Account),
+	}
+
+	respAccount := &pb.Account{
+		Name:      "Shared Account",
+		PublicKey: _byte("0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c"),
+		Uuid:      _byte("0x00000000000000000000000000000001"),
+	}
+
+	// Pre-populate the cache so all goroutines hit the cached path.
+	_, err := w.obtainAccount(respAccount, &Endpoint{host: "seed", port: 0})
+	require.NoError(t, err)
+
+	// Concurrently call obtainAccount with different endpoints on the same cached account.
+	var wg sync.WaitGroup
+	for i := range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ep := &Endpoint{host: "host", port: uint32(i)}
+			_, err := w.obtainAccount(respAccount, ep)
+			require.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+}
+
+// TestDistributedAccountEndpointConcurrentAccess verifies that concurrent calls to
+// obtainDistributedAccount for the same cached account do not race on the endpoint field.
+func TestDistributedAccountEndpointConcurrentAccess(t *testing.T) {
+	require.NoError(t, e2types.InitBLS())
+
+	w := &wallet{
+		endpoints:  []*Endpoint{{host: "localhost", port: 12345}},
+		accountMap: make(map[[48]byte]e2wtypes.Account),
+	}
+
+	respAccount := &pb.DistributedAccount{
+		Name:               "Shared Distributed",
+		PublicKey:          _byte("0xa99a76ed7796f7be22d5b7e85deeb7c5677e88e511e0b337618f8c4eb61349b4bf2d153f649f7b53359fe8b94a38e44c"),
+		CompositePublicKey: _byte("0xb89bebc699769726a318c8e9971bd3171297c61aea4a6578a7a4f94b547dcba5bac16a89108b6b6a1fe3695d1a874a0b"),
+		SigningThreshold:   2,
+		Uuid:               _byte("0x00000000000000000000000000000010"),
+		Participants: []*pb.Endpoint{
+			{Id: 1, Name: "host1", Port: 12345},
+			{Id: 2, Name: "host2", Port: 12346},
+		},
+	}
+
+	// Pre-populate the cache so all goroutines hit the cached path.
+	_, err := w.obtainDistributedAccount(respAccount, &Endpoint{host: "seed", port: 0})
+	require.NoError(t, err)
+
+	// Concurrently call obtainDistributedAccount with different endpoints on the same cached account.
+	var wg sync.WaitGroup
+	for i := range 50 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ep := &Endpoint{host: "host", port: uint32(i)}
+			_, err := w.obtainDistributedAccount(respAccount, ep)
+			require.NoError(t, err)
+		}()
+	}
+	wg.Wait()
 }
 
 // Disabled because it results in a link back to Dirk repository for

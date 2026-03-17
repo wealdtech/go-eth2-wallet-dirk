@@ -398,7 +398,7 @@ func (a *account) SignGRPC(ctx context.Context,
 
 	// Use the endpoint set in the account if available,
 	// otherwise use the first endpoint from the wallet (for backwards compatibility).
-	endpoint := a.endpoint
+	endpoint := a.Endpoint()
 	if endpoint == nil {
 		endpoint = a.wallet.endpoints[0]
 	}
@@ -525,7 +525,7 @@ func (a *account) SignMultiGRPC(ctx context.Context,
 
 	// Use the endpoint set in the account if available,
 	// otherwise use the first endpoint from the wallet (for backwards compatibility).
-	endpoint := a.endpoint
+	endpoint := a.Endpoint()
 	if endpoint == nil {
 		endpoint = a.wallet.endpoints[0]
 	}
@@ -655,7 +655,7 @@ func (a *account) SignBeaconProposalGRPC(ctx context.Context,
 
 	// Use the endpoint set in the account if available,
 	// otherwise use the first endpoint from the wallet (for backwards compatibility).
-	endpoint := a.endpoint
+	endpoint := a.Endpoint()
 	if endpoint == nil {
 		endpoint = a.wallet.endpoints[0]
 	}
@@ -782,7 +782,7 @@ func (a *account) SignBeaconAttestationGRPC(ctx context.Context,
 
 	// Use the endpoint set in the account if available,
 	// otherwise use the first endpoint from the wallet (for backwards compatibility).
-	endpoint := a.endpoint
+	endpoint := a.Endpoint()
 	if endpoint == nil {
 		endpoint = a.wallet.endpoints[0]
 	}
@@ -931,7 +931,7 @@ func (a *account) SignBeaconAttestationsGRPC(ctx context.Context,
 
 	// Use the endpoint set in the account if available,
 	// otherwise use the first endpoint from the wallet (for backwards compatibility).
-	endpoint := a.endpoint
+	endpoint := a.Endpoint()
 	if endpoint == nil {
 		endpoint = a.wallet.endpoints[0]
 	}
@@ -1927,7 +1927,7 @@ func (w *wallet) obtainAccount(respAccount *pb.Account, endpoint *Endpoint) (
 	if exists {
 		// Ensure endpoint is set even for cached accounts
 		if acc, ok := cachedAccount.(*account); ok {
-			acc.endpoint = endpoint
+			acc.SetEndpoint(endpoint)
 		}
 
 		return cachedAccount, nil
@@ -1955,7 +1955,7 @@ func (w *wallet) obtainAccount(respAccount *pb.Account, endpoint *Endpoint) (
 	}
 
 	acc := newAccount(w, uuid, name, pubKey, 1)
-	acc.endpoint = endpoint
+	acc.SetEndpoint(endpoint)
 
 	w.accountMapMu.Lock()
 	w.accountMap[key] = acc
@@ -1977,7 +1977,7 @@ func (w *wallet) obtainDistributedAccount(respAccount *pb.DistributedAccount, en
 	if exists {
 		// Ensure endpoint is set even for cached accounts
 		if acc, ok := cachedAccount.(*distributedAccount); ok {
-			acc.endpoint = endpoint
+			acc.SetEndpoint(endpoint)
 		}
 
 		return cachedAccount, nil
@@ -2018,7 +2018,7 @@ func (w *wallet) obtainDistributedAccount(respAccount *pb.DistributedAccount, en
 	}
 
 	acc := newDistributedAccount(w, uuid, name, pubKey, compositePubKey, respAccount.GetSigningThreshold(), participants, 1)
-	acc.endpoint = endpoint
+	acc.SetEndpoint(endpoint)
 
 	w.accountMapMu.Lock()
 	w.accountMap[key] = acc
