@@ -327,7 +327,8 @@ func (s *MockListerServerOverlappingAccounts) ListAccounts(_ context.Context, in
 type CustomListerServer struct {
 	pb.UnimplementedListerServer
 
-	Accounts []*pb.Account
+	Accounts            []*pb.Account
+	DistributedAccounts []*pb.DistributedAccount
 }
 
 func (s *CustomListerServer) ListAccounts(_ context.Context, in *pb.ListAccountsRequest) (*pb.ListAccountsResponse, error) {
@@ -352,9 +353,29 @@ func (s *CustomListerServer) ListAccounts(_ context.Context, in *pb.ListAccounts
 		}
 	}
 
+	var filteredDistributedAccounts []*pb.DistributedAccount
+
+	for _, account := range s.DistributedAccounts {
+		if len(in.GetPaths()) == 0 {
+			filteredDistributedAccounts = append(filteredDistributedAccounts, account)
+		} else {
+			for _, path := range in.GetPaths() {
+				if !strings.Contains(path, "/") {
+					filteredDistributedAccounts = append(filteredDistributedAccounts, account)
+					break
+				}
+
+				if strings.HasSuffix(path, fmt.Sprintf("/%s", account.GetName())) {
+					filteredDistributedAccounts = append(filteredDistributedAccounts, account)
+					break
+				}
+			}
+		}
+	}
+
 	return &pb.ListAccountsResponse{
 		State:               pb.ResponseState_SUCCEEDED,
 		Accounts:            filteredAccounts,
-		DistributedAccounts: nil,
+		DistributedAccounts: filteredDistributedAccounts,
 	}, nil
 }

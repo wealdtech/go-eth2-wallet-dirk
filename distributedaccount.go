@@ -102,6 +102,21 @@ func (a *distributedAccount) Wallet() e2wtypes.Wallet {
 	return a.wallet
 }
 
+// SetEndpoint sets the endpoint for the account.
+func (a *distributedAccount) SetEndpoint(endpoint *Endpoint) {
+	a.mutex.Lock()
+	a.endpoint = endpoint
+	a.mutex.Unlock()
+}
+
+// Endpoint returns the endpoint for the account.
+func (a *distributedAccount) Endpoint() *Endpoint {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	return a.endpoint
+}
+
 // Lock locks the account.  A locked account cannot sign data.
 func (a *distributedAccount) Lock(ctx context.Context) error {
 	err := a.wallet.LockAccount(ctx, a.name)

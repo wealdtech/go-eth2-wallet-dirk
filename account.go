@@ -69,6 +69,21 @@ func (a *account) Wallet() e2wtypes.Wallet {
 	return a.wallet
 }
 
+// SetEndpoint sets the endpoint for the account.
+func (a *account) SetEndpoint(endpoint *Endpoint) {
+	a.mutex.Lock()
+	a.endpoint = endpoint
+	a.mutex.Unlock()
+}
+
+// Endpoint returns the endpoint for the account.
+func (a *account) Endpoint() *Endpoint {
+	a.mutex.RLock()
+	defer a.mutex.RUnlock()
+
+	return a.endpoint
+}
+
 // Lock locks the account.  A locked account cannot sign data.
 func (a *account) Lock(ctx context.Context) error {
 	err := a.wallet.LockAccount(ctx, a.name)
