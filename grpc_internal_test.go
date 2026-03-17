@@ -368,7 +368,7 @@ func TestAccountEndpointConcurrentAccess(t *testing.T) {
 		Uuid:      _byte("0x00000000000000000000000000000001"),
 	}
 
-	// Pre-populate the cache so all goroutines hit the cached path (line 1930).
+	// Pre-populate the cache so all goroutines hit the cached path.
 	_, err := w.obtainAccount(respAccount, &Endpoint{host: "seed", port: 0})
 	require.NoError(t, err)
 
@@ -408,7 +408,7 @@ func TestDistributedAccountEndpointConcurrentAccess(t *testing.T) {
 		},
 	}
 
-	// Pre-populate the cache so all goroutines hit the cached path (line 1980).
+	// Pre-populate the cache so all goroutines hit the cached path.
 	_, err := w.obtainDistributedAccount(respAccount, &Endpoint{host: "seed", port: 0})
 	require.NoError(t, err)
 
