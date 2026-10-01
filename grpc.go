@@ -592,6 +592,32 @@ func (a *distributedAccount) SignMultiGRPC(ctx context.Context,
 		}
 	}
 
+	groups, keys, err := groupByParticipants(accounts)
+	if err != nil {
+		return nil, err
+	}
+	if needsParticipantSplit(a, groups, keys) {
+		sigs := make([]e2types.Signature, len(accounts))
+		for _, group := range groups {
+			groupAccounts := make([]e2wtypes.Account, len(group))
+			groupData := make([][]byte, len(group))
+			for j, idx := range group {
+				groupAccounts[j] = accounts[idx]
+				groupData[j] = data[idx]
+			}
+			leader, _ := accounts[group[0]].(*distributedAccount)
+			groupSigs, err := leader.SignMultiGRPC(ctx, groupAccounts, groupData, domain)
+			if err != nil {
+				return nil, err
+			}
+			for j, idx := range group {
+				sigs[idx] = groupSigs[j]
+			}
+		}
+
+		return sigs, nil
+	}
+
 	req := &pb.MultisignRequest{
 		Requests: make([]*pb.SignRequest, len(accounts)),
 	}
@@ -1001,6 +1027,33 @@ func (a *distributedAccount) SignBeaconAttestationsGRPC(ctx context.Context,
 		if _, isAccount := accounts[i].(*distributedAccount); !isAccount {
 			return nil, errors.New("non-distributed account provided in list")
 		}
+	}
+
+	groups, keys, err := groupByParticipants(accounts)
+	if err != nil {
+		return nil, err
+	}
+	if needsParticipantSplit(a, groups, keys) {
+		sigs := make([]e2types.Signature, len(accounts))
+		for _, group := range groups {
+			groupAccounts := make([]e2wtypes.Account, len(group))
+			groupCommitteeIndices := make([]uint64, len(group))
+			for j, idx := range group {
+				groupAccounts[j] = accounts[idx]
+				groupCommitteeIndices[j] = committeeIndices[idx]
+			}
+			leader, _ := accounts[group[0]].(*distributedAccount)
+			groupSigs, err := leader.SignBeaconAttestationsGRPC(ctx, slot, groupAccounts, groupCommitteeIndices,
+				blockRoot, sourceEpoch, sourceRoot, targetEpoch, targetRoot, domain)
+			if err != nil {
+				return nil, err
+			}
+			for j, idx := range group {
+				sigs[idx] = groupSigs[j]
+			}
+		}
+
+		return sigs, nil
 	}
 
 	thresholds := make([]uint32, len(accounts))
